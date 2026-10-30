@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Loader2, ScanSearch, TriangleAlert } from "lucide-react";
+import { ArrowRight, Loader2, ScanSearch, ShieldCheck, TriangleAlert } from "lucide-react";
 import { streamSse } from "@/lib/sse";
 import { applyOverrides } from "@/lib/graph/overrides";
 import type { TwinGraph } from "@/lib/graph/types";
@@ -42,7 +42,7 @@ function LiveCanvas({ graph: scanned, repo, running, progress, warnings }: { gra
     <div className="relative">
       <Canvas graph={g} incident={incident} anchor={anchor}
         nodeEditor={canEdit ? (node) => <NodeEditor key={node.id} node={node} current={overrides[node.id]} onSave={(o) => void edit(node.id, o)} error={editError} /> : undefined}
-        headerExtra={<>{canEdit && <HiddenPanel scanned={scanned} overrides={overrides} onEdit={(id, o) => void edit(id, o)} />}{canEdit && <SharePanel repo={repo} />}<SourcesPanel status={status} proposals={proposals} graph={graph} onConfirm={confirm} onForget={forget} shared={shared} /><SessionButton /></>} />
+        headerExtra={<>{canEdit && <a href={`/security?repo=${encodeURIComponent(repo)}`} className="flex items-center gap-1.5 rounded-lg border border-line bg-surface/80 px-2.5 py-1.5 text-xs text-ink-dim hover:text-ink"><ShieldCheck size={13} aria-hidden /> Security</a>}{canEdit && <HiddenPanel scanned={scanned} overrides={overrides} onEdit={(id, o) => void edit(id, o)} />}{canEdit && <SharePanel repo={repo} />}<SourcesPanel status={status} proposals={proposals} graph={graph} onConfirm={confirm} onForget={forget} shared={shared} /><SessionButton /></>} />
       <div className="pointer-events-none absolute left-4 top-[7.2rem] z-10 w-72 rounded-xl border border-line bg-surface/90 p-3 text-xs backdrop-blur">
         <div className="flex items-center gap-2 text-ink">
           {running ? <Loader2 size={13} className="animate-spin text-accent" /> : <ScanSearch size={13} className="text-nominal" />}

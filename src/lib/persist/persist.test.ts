@@ -29,6 +29,16 @@ describe("mergeBuckets", () => {
 });
 
 const contract = (name: string, make: () => Persist) => describe(`${name} adapter`, () => {
+  it("stores the latest security scan per repo (case-insensitive), replacing the previous one", async () => {
+    const p = make();
+    expect(await p.getFindings("acme/shop")).toBeNull();
+    const set = { repo: "acme/shop", sha: "a".repeat(40), scannedAt: 1, findings: [], stats: { files: 3, packages: 2, lockfiles: 1 }, warnings: ["w"] };
+    await p.putFindings("Acme/Shop", set);
+    expect(await p.getFindings("acme/shop")).toEqual(set);
+    await p.putFindings("acme/shop", { ...set, scannedAt: 2, warnings: [] });
+    expect((await p.getFindings("acme/shop"))!.scannedAt).toBe(2);
+    expect(await p.getFindings("other/repo")).toBeNull();
+  });
   it("stores overrides per repo (case-insensitive) and replaces them wholesale", async () => {
     const p = make();
     expect(await p.getOverrides("acme/shop")).toEqual({});

@@ -46,6 +46,8 @@ export const LIMITS = {
   shared: { name: "shared", max: 60, windowMs: 60_000 },
   badge: { name: "badge", max: 120, windowMs: 60_000 },
   verdict: { name: "verdict", max: 60, windowMs: 60_000 },
+  secscan: { name: "secscan", max: 3, windowMs: 60_000 },
+  snippet: { name: "snippet", max: 60, windowMs: 60_000 },
   write: { name: "write", max: 30, windowMs: 60_000 },
 } satisfies Record<string, Limit>;
 

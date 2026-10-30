@@ -1,6 +1,7 @@
 import type { TwinGraph } from "@/lib/graph/types";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
+import type { FindingSet } from "@/lib/security/types";
 import type { Share } from "@/lib/share/token";
 
 export interface SnapshotMeta { sha: string; committedAt?: string; createdAt: number }
@@ -23,6 +24,9 @@ export interface Persist {
   /** human corrections to the map (rename, re-describe, hide); survive re-scans */
   getOverrides(repo: string): Promise<Overrides>;
   putOverrides(repo: string, overrides: Overrides): Promise<void>;
+  /** the latest security scan: findings only (path, line, rule, reason), never source code or a secret's value */
+  getFindings(repo: string): Promise<FindingSet | null>;
+  putFindings(repo: string, set: FindingSet): Promise<void>;
   /** read-only share links; only hashes are stored */
   listShares(repo: string): Promise<Share[]>;
   addShare(repo: string, share: Share): Promise<void>;

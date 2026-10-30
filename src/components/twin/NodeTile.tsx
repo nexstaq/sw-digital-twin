@@ -5,7 +5,7 @@ import {
   Boxes, Cloud, Database, FileCode2, Globe, Layers, ListOrdered, Package, Play, ChevronRight, type LucideIcon,
 } from "lucide-react";
 import type { NodeKind, TwinNode } from "@/lib/graph/types";
-import { Sparkline, StatusRing, STATUS } from "./status";
+import { Sparkline, StatusRing, STATUS, useStatusLabel } from "./status";
 
 const KIND_ICON: Record<NodeKind, LucideIcon> = {
   service: Boxes, job: Play, package: Package, datastore: Database, queue: ListOrdered,
@@ -31,6 +31,7 @@ interface ViewProps {
 /** Pure presentational tile, usable outside React Flow. */
 export function NodeTileView({ node, childCount = 0, selected, dim, impacted, title, subtitle }: ViewProps) {
   const s = STATUS[node.state];
+  const statusLabel = useStatusLabel();
   const Icon = KIND_ICON[node.kind];
   return (
     <div
@@ -45,7 +46,7 @@ export function NodeTileView({ node, childCount = 0, selected, dim, impacted, ti
       }}
     >
       <div className="flex items-start gap-2.5">
-        <StatusRing status={node.state} />
+        <StatusRing status={node.state} label={statusLabel(node.state)} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13.5px] font-semibold leading-tight text-ink">{title ?? node.label}</div>
           {subtitle ? (

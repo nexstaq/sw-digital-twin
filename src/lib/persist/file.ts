@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
+import type { FindingSet } from "@/lib/security/types";
 import type { Share } from "@/lib/share/token";
 import { mergeBuckets } from "./memory";
 import type { Persist, Snapshot, SnapshotMeta } from "./types";
@@ -23,6 +24,8 @@ export function filePersist(root = path.join(/*turbopackIgnore: true*/ process.c
   };
   const sharesFile = (repo: string) => path.join(/*turbopackIgnore: true*/ dir(repo), "shares.json");
   return {
+    async getFindings(repo) { return readJson<FindingSet | null>(path.join(/*turbopackIgnore: true*/ dir(repo), "findings.json"), null); },
+    async putFindings(repo, set) { await writeJson(path.join(/*turbopackIgnore: true*/ dir(repo), "findings.json"), set); },
     async getOverrides(repo) { return readJson<Overrides>(path.join(/*turbopackIgnore: true*/ dir(repo), "overrides.json"), {}); },
     async putOverrides(repo, o) { await writeJson(path.join(/*turbopackIgnore: true*/ dir(repo), "overrides.json"), o); },
     async listShares(repo) { return readJson<Share[]>(sharesFile(repo), []); },

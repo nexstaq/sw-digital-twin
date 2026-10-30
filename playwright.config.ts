@@ -31,6 +31,7 @@ export default defineConfig({
         APP_URL: `http://localhost:${APP}`,
         GITHUB_API_URL: `http://localhost:${MOCK}`,
         GITHUB_WEB_URL: `http://localhost:${MOCK}`,
+        OSV_API_URL: `http://localhost:${MOCK}`,
         GITHUB_APP_CLIENT_ID: "e2e-client",
         GITHUB_APP_CLIENT_SECRET: "e2e-secret",
         GITHUB_APP_SLUG: "e2e-app",

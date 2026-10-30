@@ -1,0 +1,11 @@
+name: PR preview
+on: pull_request_target
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: some-org/preview-deploy@main
+      - run: echo "Deploying ${{ github.event.pull_request.title }}"

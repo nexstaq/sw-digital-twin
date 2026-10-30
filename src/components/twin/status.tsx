@@ -1,3 +1,4 @@
+import { createContext, useContext } from "react";
 import { CircleCheck, CircleHelp, OctagonX, TriangleAlert, type LucideIcon } from "lucide-react";
 import type { Status } from "@/lib/graph/types";
 
@@ -10,15 +11,26 @@ export const STATUS: Record<Status, {
   unknown:  { label: "No signal", Icon: CircleHelp,   text: "text-unknown",  bg: "bg-unknown/10",  border: "border-unknown/40",  color: "var(--color-unknown)" },
 };
 
+/** The same four states mean different things on the health map and the security map. */
+export type Vocab = "health" | "security";
+export const VocabContext = createContext<Vocab>("health");
+const SECURITY_LABEL: Record<Status, string> = { failing: "High risk", degraded: "Medium risk", nominal: "Low risk", unknown: "Not scanned" };
+export const useVocab = () => useContext(VocabContext);
+/** Status word for the current map: "Failing" on health, "High risk" on security. */
+export function useStatusLabel(): (s: Status) => string {
+  const v = useVocab();
+  return (s) => (v === "security" ? SECURITY_LABEL[s] : STATUS[s].label);
+}
+
 /** Icon in a ring; pulses when something needs attention. */
-export function StatusRing({ status, size = 28 }: { status: Status; size?: number }) {
+export function StatusRing({ status, size = 28, label }: { status: Status; size?: number; label?: string }) {
   const s = STATUS[status];
   return (
     <span
       className={`relative inline-flex shrink-0 items-center justify-center rounded-full ${s.bg} ${s.text}`}
       style={{ width: size, height: size }}
       role="img"
-      aria-label={s.label}
+      aria-label={label ?? s.label}
     >
       {(status === "failing" || status === "degraded") && (
         <span className="pulse-ring absolute inset-0 rounded-full border" style={{ borderColor: s.color }} />

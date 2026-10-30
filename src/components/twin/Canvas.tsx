@@ -23,6 +23,7 @@ import { HighlightBar } from "./HighlightBar";
 import { ReplayBar } from "./ReplayBar";
 import { LensSwitcher } from "./LensSwitcher";
 import { SideDrawer } from "./SideDrawer";
+import { VocabContext } from "./status";
 import { TILE_H, TILE_W, TileNodeComponent, type TileNode } from "./NodeTile";
 import { TimelineScrubber } from "./TimelineScrubber";
 import { TourPlayer, useTourSteps } from "./TourPlayer";
@@ -33,9 +34,9 @@ const elk = new ELK();
 /** zooming in past this over a node with children opens it */
 const AUTO_DRILL_ZOOM = 1.5;
 
-interface ViewProps { incident?: Incident | null; anchor?: number; headerExtra?: ReactNode; /** drawer section for editing the selected node (people with push access) */ nodeEditor?: (node: TwinNode) => ReactNode }
+interface ViewProps { /** "security" recolours the same map by risk: own headline, no lens switcher or deploy timeline */ mode?: "health" | "security"; /** replaces the GO / NO-GO banner */ banner?: ReactNode; incident?: Incident | null; anchor?: number; headerExtra?: ReactNode; /** drawer section for editing the selected node (people with push access) */ nodeEditor?: (node: TwinNode) => ReactNode }
 
-function Inner({ graph, incident, anchor, headerExtra, nodeEditor }: { graph: TwinGraph } & ViewProps) {
+function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "health", banner }: { graph: TwinGraph } & ViewProps) {
   const { path, selectedId, lens, drill, upTo, select, setPath, setLens, tourStep, highlight, setHighlight, setPalette, replay, setReplay, setScrub } = useTwin();
   const story = useTourSteps(graph);
   const touring = lens === "tour";
@@ -219,13 +220,13 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor }: { graph: Tw
             <div className="font-mono text-[11px] text-ink-dim">{graph.repo}</div>
           </div>
         </div>
-        <GoNoGoBanner graph={graph} onShow={(b) => { setHighlight(null); setPath(b.path); select(b.id); }} />
+        {mode === "security" ? banner : <GoNoGoBanner graph={graph} onShow={(b) => { setHighlight(null); setPath(b.path); select(b.id); }} />}
         <div className="ml-auto flex items-center gap-2">
           {headerExtra}
           <button onClick={() => setPalette(true)} aria-label="Ask or jump (Command K)" className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink-dim hover:text-ink">
             <Search size={14} aria-hidden /><span className="hidden lg:inline">Ask or jump</span><kbd className="hidden rounded border border-line px-1 font-mono text-[10px] text-ink-faint lg:inline">⌘K</kbd>
           </button>
-          <LensSwitcher />
+          {mode === "health" && <LensSwitcher />}
         </div>
       </header>
 
@@ -303,7 +304,7 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor }: { graph: Tw
         </p>
       </div>
 
-      <TimelineScrubber deploys={graph.deploys} activity={graph.activity} incident={incident} anchor={anchor} />
+      {mode === "health" && <TimelineScrubber deploys={graph.deploys} activity={graph.activity} incident={incident} anchor={anchor} />}
       <CommandPalette graph={graph} />
     </div>
   );
@@ -311,8 +312,10 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor }: { graph: Tw
 
 export function Canvas({ graph, ...view }: { graph: TwinGraph } & ViewProps) {
   return (
-    <ReactFlowProvider>
-      <Inner graph={graph} {...view} />
-    </ReactFlowProvider>
+    <VocabContext.Provider value={view.mode === "security" ? "security" : "health"}>
+      <ReactFlowProvider>
+        <Inner graph={graph} {...view} />
+      </ReactFlowProvider>
+    </VocabContext.Provider>
   );
 }

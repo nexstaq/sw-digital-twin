@@ -5,5 +5,6 @@ initBotId({
   protect: [
     { path: "/api/scan", method: "GET" },
     { path: "/api/ask", method: "POST" },
+    { path: "/api/security/scan", method: "POST" },
   ],
 });

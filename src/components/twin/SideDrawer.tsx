@@ -7,7 +7,7 @@ import { Sparkles } from "lucide-react";
 import { describeFor, displayName } from "@/lib/graph/display";
 import type { TwinNode } from "@/lib/graph/types";
 import type { Lens } from "@/lib/store";
-import { Sparkline, StatusRing, STATUS } from "./status";
+import { Sparkline, StatusRing, STATUS, useStatusLabel, useVocab } from "./status";
 
 type Ev = TwinNode["evidence"][number];
 const evidenceKey = (e: Ev) => `${e.path}:${JSON.stringify(e.lines ?? null)}:${e.runId ?? ""}`;
@@ -50,6 +50,8 @@ export function SideDrawer({ node, childCount, lens, onClose, onDrill, onAsk, ed
   node: TwinNode | null; childCount: number; lens: Lens; onClose: () => void; onDrill: () => void;
   onAsk?: (nodeId: string, question: string) => Promise<{ ok: true; text: string } | { ok: false; message: string }>;
 }) {
+  const statusLabel = useStatusLabel();
+  const vocab = useVocab();
   return (
     <AnimatePresence>
       {node && (
@@ -63,10 +65,10 @@ export function SideDrawer({ node, childCount, lens, onClose, onDrill, onAsk, ed
           aria-label={`${node.label} details`}
         >
           <header className="flex items-start gap-3 border-b border-line p-4">
-            <StatusRing status={node.state} size={34} />
+            <StatusRing status={node.state} size={34} label={statusLabel(node.state)} />
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-base font-semibold">{displayName(node, lens)}</h2>
-              <p className={`text-xs ${STATUS[node.state].text}`}>{STATUS[node.state].label} · health {Math.round(node.score * 100)}</p>
+              <p className={`text-xs ${STATUS[node.state].text}`}>{statusLabel(node.state)} · {vocab === "security" ? "safety" : "health"} {Math.round(node.score * 100)}</p>
             </div>
             <button onClick={onClose} aria-label="Close" className="rounded p-1 text-ink-dim hover:bg-raised hover:text-ink">
               <X size={16} />

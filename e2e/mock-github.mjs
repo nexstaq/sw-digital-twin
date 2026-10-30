@@ -3,7 +3,7 @@
 //   acme/vault private; visible only to the signed-in test user (token tok-alice), who can push.
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, cpSync, readFileSync } from "node:fs";
+import { mkdtempSync, cpSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,8 @@ const TOKEN = "tok-alice";
 // one real git commit of the fixture, archived exactly like GitHub does (pax header carries the sha)
 const work = mkdtempSync(path.join(tmpdir(), "mock-gh-"));
 cpSync(path.join(here, "fixture"), work, { recursive: true });
+// Secrets are assembled here, at run time, so no key-shaped string is ever committed to the real repo.
+writeFileSync(path.join(work, "src/config.ts"), `// payments\nexport const awsKey = "${"AK" + "IA" + "IOSFODNN7" + "EXAMPLE"}";\n`);
 const git = (...a) => execFileSync("git", ["-C", work, "-c", "user.email=t@t", "-c", "user.name=t", ...a], { encoding: "utf8", env: { ...process.env, GIT_COMMITTER_DATE: "2026-01-02T03:04:05Z", GIT_AUTHOR_DATE: "2026-01-02T03:04:05Z" } });
 git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "init");
 const SHA = git("rev-parse", "HEAD").trim();
@@ -36,6 +38,12 @@ const jobsFor = (id) => ({ jobs: [
   { name: "test", status: "completed", conclusion: id === 1000 ? "failure" : "success", html_url: `https://github.com/acme/shop/actions/runs/${id}/job/2`, steps: [{ name: "Run unit tests", conclusion: id === 1000 ? "failure" : "success" }] },
   { name: "deploy", status: "completed", conclusion: id === 1000 ? "skipped" : "success", html_url: `https://github.com/acme/shop/actions/runs/${id}/job/3`, steps: [] },
 ] });
+
+// ---- OSV.dev stand-in: lodash 4.17.15 has two advisories, nothing else does
+const ADVISORIES = {
+  "GHSA-p6mc-m468-83gw": { id: "GHSA-p6mc-m468-83gw", aliases: ["CVE-2020-8203"], summary: "Prototype Pollution in lodash", severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:H" }], database_specific: { cwe_ids: ["CWE-1321"], severity: "HIGH" }, affected: [{ package: { name: "lodash", ecosystem: "npm" }, ranges: [{ events: [{ introduced: "0" }, { fixed: "4.17.19" }] }] }], references: [{ type: "ADVISORY", url: "https://github.com/advisories/GHSA-p6mc-m468-83gw" }] },
+  "GHSA-35jh-r3h4-6jhm": { id: "GHSA-35jh-r3h4-6jhm", aliases: ["CVE-2021-23337"], summary: "Command Injection in lodash", severity: [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H" }], database_specific: { cwe_ids: ["CWE-77"], severity: "HIGH" }, affected: [{ package: { name: "lodash", ecosystem: "npm" }, ranges: [{ events: [{ fixed: "4.17.21" }] }] }], references: [] },
+};
 
 createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -66,6 +74,19 @@ createServer((req, res) => {
   if ((m = /^\/repos\/acme\/[\w-]+\/actions\/runs\/(\d+)\/jobs$/.exec(p))) return json(res, 200, jobsFor(Number(m[1])));
   if (/^\/repos\/acme\/[\w-]+\/deployments$/.test(p)) return json(res, 200, []);
   if (/^\/repos\/acme\/[\w-]+\/commits\/[0-9a-f]+$/.test(p)) return json(res, 200, { commit: { committer: { date: "2026-01-02T03:04:05Z" } } });
+  if (p === "/v1/querybatch" && req.method === "POST") {
+    let body = ""; req.on("data", (c) => (body += c));
+    req.on("end", () => json(res, 200, { results: JSON.parse(body).queries.map((q) => ({ vulns: q.package.name === "lodash" && q.version === "4.17.15" ? Object.keys(ADVISORIES).map((id) => ({ id })) : [] })) }));
+    return;
+  }
+  if ((m = /^\/v1\/vulns\/([\w-]+)$/.exec(p))) return ADVISORIES[m[1]] ? json(res, 200, ADVISORIES[m[1]]) : json(res, 404, {});
+  // file contents at the scanned commit (private repos only for the signed-in user), raw like GitHub's raw media type
+  if ((m = /^\/repos\/(acme\/[\w-]+)\/contents\/(.+)$/.exec(p))) {
+    if (!visible(m[1], req)) return json(res, 404, { message: "Not Found" });
+    const file = path.join(work, decodeURIComponent(m[2]));
+    if (!file.startsWith(work + path.sep) || !existsSync(file)) return json(res, 404, { message: "Not Found" });
+    res.writeHead(200, { "content-type": "text/plain" }); return res.end(readFileSync(file));
+  }
   if (p === "/__health") return json(res, 200, { ok: true, sha: SHA });
   json(res, 404, { message: `mock has no ${p}` });
 }).listen(PORT, () => console.log(`mock github on ${PORT}, fixture commit ${SHA.slice(0, 7)}`));

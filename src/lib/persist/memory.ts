@@ -1,5 +1,6 @@
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
+import type { FindingSet } from "@/lib/security/types";
 import type { Share } from "@/lib/share/token";
 import { RETENTION_MS, type Persist, type Snapshot } from "./types";
 
@@ -31,8 +32,11 @@ export function memoryPersist(): Persist {
   const maps = new Map<string, Record<string, string>>();
   const ovr = new Map<string, Overrides>();
   const shares = new Map<string, Share[]>();
+  const found = new Map<string, FindingSet>();
   const k = (r: string) => r.toLowerCase();
   return {
+    async getFindings(repo) { return structuredClone(found.get(k(repo)) ?? null); },
+    async putFindings(repo, set) { found.set(k(repo), structuredClone(set)); },
     async getOverrides(repo) { return structuredClone(ovr.get(k(repo)) ?? {}); },
     async putOverrides(repo, o) { ovr.set(k(repo), structuredClone(o)); },
     async listShares(repo) { return structuredClone(shares.get(k(repo)) ?? []); },

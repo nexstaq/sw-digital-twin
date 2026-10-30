@@ -39,7 +39,8 @@ export function SharePanel({ repo }: { repo: string }) {
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(what); setTimeout(() => setCopied(null), 1500); } catch { setError("Copy failed. Select the text and copy it."); }
   };
-  const ago = (t: number) => { const d = Math.round((Date.now() - t) / 86_400_000); return d < 1 ? "today" : `${d}d ago`; };
+  const [now] = useState(() => Date.now()); // fixed at mount: relative ages need no live clock
+  const ago = (t: number) => { const d = Math.round((now - t) / 86_400_000); return d < 1 ? "today" : `${d}d ago`; };
 
   return (
     <div className="relative">
