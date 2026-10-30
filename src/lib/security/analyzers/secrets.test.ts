@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeSecrets, entropy, maskSecret, redactLine } from "./secrets";
+import { analyzeSecrets, dbUrlParts, entropy, looksLikeIdentifier, maskSecret, redactLine } from "./secrets";
 import type { SecurityContext } from "../types";
 
 // Credentials are assembled at runtime so no real-looking secret is ever written in the repo (and push protection stays quiet).
@@ -77,5 +77,42 @@ describe("helpers", () => {
     expect(redactLine(`const k = "${AWS}";`)).toContain("redacted");
     expect(redactLine(`password: "${RAND}"`)).not.toContain(RAND);
     expect(redactLine("const a = 1;")).toBe("const a = 1;");
+  });
+});
+
+describe("false positives seen on a real repository", () => {
+  it("a local dev database with a throwaway password (even in a comment) is not a finding", async () => {
+    const f = await run({
+      "scripts/dev-db.ts": "// Prints DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/postgres\n",
+      "docker-compose.dev.yml": "DATABASE_URL: postgres://app:password@db:5432/app\n",
+      "README-ish.ts": "const u = 'postgres://user:user@localhost/db';",
+    });
+    expect(f).toEqual([]);
+  });
+  it("a local host with a REAL-looking password is a low note; a remote host is still high", async () => {
+    const local = await run({ "a.ts": `const u = "postgres://app:${RAND}@localhost:5432/app";` });
+    expect(local).toHaveLength(1);
+    expect(local[0]).toMatchObject({ severity: "low", detail: { secretKind: "Database URL with password" } });
+    const remote = await run({ "b.ts": `const u = "postgres://app:${RAND}@prod-db.example.net:5432/app";` });
+    expect(remote[0].severity).toBe("high");
+    const weakRemote = await run({ "c.ts": `const u = "postgres://admin:changeme@prod-db.example.net:5432/app";` });
+    expect(weakRemote[0].severity).toBe("low"); // a placeholder password cannot leak much, but a real host deserves a look
+  });
+  it("cookie, header and env-var NAMES are not credentials", async () => {
+    const f = await run({ "middleware.ts": `const token = "authjs.session-token";\nconst k = { apiKey: "x-api-key-header-name" };\nconst secret = "next-auth.csrf-token";` });
+    expect(f).toEqual([]);
+    expect(["authjs.session-token", "x-api-key", "__Secure-next-auth.session-token"].every(looksLikeIdentifier)).toBe(true);
+    expect(looksLikeIdentifier(RAND)).toBe(false);
+    expect(looksLikeIdentifier("abc-123-def")).toBe(false);
+  });
+  it("values that announce themselves as test data are skipped, real-looking ones are not", async () => {
+    const f = await run({ "auth.ts": `const SECRET = "test-secret-for-ci-runs";\nconst password = "${RAND}";` });
+    expect(f).toHaveLength(1);
+    expect(f[0].line).toBe(2);
+  });
+  it("dbUrlParts extracts host/user/password and tolerates IPv6", () => {
+    expect(dbUrlParts("DATABASE_URL=postgres://u:p@127.0.0.1:5433/db")).toEqual({ user: "u", password: "p", host: "127.0.0.1" });
+    expect(dbUrlParts("redis://default:pw@[::1]:6379")?.host).toBe("[::1]");
+    expect(dbUrlParts("no url here")).toBeNull();
   });
 });

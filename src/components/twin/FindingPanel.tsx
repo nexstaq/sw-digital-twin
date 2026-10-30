@@ -34,6 +34,7 @@ export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { fin
             <SeverityBadge severity={f.severity} />
             <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-dim">{CATEGORY_LABEL[f.category]}</span>
             <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-dim">{f.confidence} confidence</span>
+            {f.detail.dev && <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-dim">dev tool only</span>}
           </div>
           <h2 className="text-base font-semibold leading-snug">{f.title}</h2>
         </div>
@@ -86,6 +87,19 @@ export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { fin
                 </li>
               ))}
             </ul>
+            {d.via && d.via.length > 0 && (
+              <div className="mt-2" aria-label="How it got into your project">
+                <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-ink-faint">How it got into your project</div>
+                <ol className="flex flex-wrap items-center gap-1 text-xs">
+                  {[...d.via, `${d.package}`].map((n, i, all) => (
+                    <li key={`${i}-${n}`} className="flex items-center gap-1">
+                      <span className={`rounded-md px-2 py-0.5 font-mono ${i === all.length - 1 ? "bg-failing/15 text-failing" : "bg-raised text-ink-dim"}`}>{n}</span>
+                      {i < all.length - 1 && <span className="text-ink-faint" aria-hidden>→</span>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
             {d.usedIn !== undefined && (
               <p className="mt-2 text-xs text-ink-dim">{d.usedIn.length ? <>Imported by your code in <span className="font-mono">{d.usedIn.join(", ")}</span>.</> : "No import of it was found in your source."}</p>
             )}

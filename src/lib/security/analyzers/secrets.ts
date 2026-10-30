@@ -18,10 +18,24 @@ const RULES: Rule[] = [
 ];
 
 const GENERIC = /(?:secret|token|passwd|password|api[_-]?key|auth[_-]?key|private[_-]?key)["']?\s*[:=]\s*["']([^"'\s]{12,})["']/i;
+const FIXTURE_WORD = /(?:^|[-_.])(?:test|tests|fake|dummy|mock|mocked|example|sample|placeholder|notreal|not-a-real)(?:[-_.]|$)/i;
 const PLACEHOLDER = /^(?:x+|\*+|<.*>|\$\{.*\}|%\(.*\)s|{{.*}}|your[_-]|changeme|change[_-]me|example|sample|dummy|placeholder|test|todo|redacted|secret|password|token|null|undefined|process\.env|os\.environ)/i;
 
 const SKIP_FILE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|poetry\.lock|Cargo\.lock|go\.sum|composer\.lock|Gemfile\.lock)$|\.(min\.js|map|svg|png|jpe?g|gif|webp|ico|woff2?|ttf|eot|pdf|zip|gz|wasm|lock)$/i;
 const EXAMPLE_FILE = /(^|\/)\.env\.(example|sample|template)$|\.(example|sample|template)$|(^|\/)(README|CHANGELOG)[^/]*$|\.mdx?$/i;
+
+/** Hosts that mean "my own machine or my compose network", where a throwaway password is normal. */
+const LOCAL_HOST = /^(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[?::1\]?|host\.docker\.internal|db|database|postgres|mysql|mariadb|mongo|mongodb|redis|rabbitmq|[\w-]+\.local)$/i;
+const DEV_PASSWORD = /^(?:pass(?:word)?|postgres|root|admin|secret|changeme|example|test|dev|local|123456|password\d*|your[\w-]*|x+|\*+|<[^>]*>|\$\{[^}]*\})$/i;
+
+/** Pulls host, user and password out of a connection string, without ever returning the password to a caller that logs it. */
+export function dbUrlParts(text: string): { host: string; user: string; password: string } | null {
+  const m = /:\/\/([^\s:@/'"]+):([^\s@/'"]+)@(\[[^\]]+\]|[^\s:/'"?]+)/.exec(text);
+  return m ? { user: m[1], password: m[2], host: m[3] } : null;
+}
+
+/** "Looks like a name, not a secret": cookie names, header names, env var names (`authjs.session-token`, `x-api-key`). */
+export const looksLikeIdentifier = (v: string) => /^[A-Za-z_][A-Za-z_.:/-]*$/.test(v) && /[-_.:/]/.test(v) && !/\d/.test(v);
 
 export function entropy(s: string): number {
   const freq = new Map<string, number>();
@@ -59,9 +73,16 @@ export async function analyzeSecrets(ctx: SecurityContext): Promise<Finding[]> {
         const m = r.re.exec(line);
         if (m) { hit = { kind: r.kind, severity: r.severity, why: r.why, fix: r.fix, value: m[1] ?? m[0] }; break; }
       }
+      if (hit?.kind === "Database URL with password") {
+        const u = dbUrlParts(line);
+        const local = !!u && LOCAL_HOST.test(u.host.replace(/^\[|\]$/g, ""));
+        const throwaway = !!u && (DEV_PASSWORD.test(u.password) || u.password === u.user || FIXTURE_WORD.test(u.password));
+        if (local && throwaway) continue; // a local dev database with a throwaway password: nothing to leak
+        if (local || throwaway) hit = { ...hit, severity: "low", why: "A database connection string with a password is committed. The host and password look like local development, so this is probably harmless, but confirm that password is not reused anywhere real." };
+      }
       if (!hit && !example) {
         const g = GENERIC.exec(line);
-        if (g && !PLACEHOLDER.test(g[1]) && entropy(g[1]) >= 3.3 && !/\b(?:process\.env|os\.environ|getenv|import\.meta\.env)\b/.test(line)) {
+        if (g && !PLACEHOLDER.test(g[1]) && !FIXTURE_WORD.test(g[1]) && !looksLikeIdentifier(g[1]) && entropy(g[1]) >= 3.3 && !/\b(?:process\.env|os\.environ|getenv|import\.meta\.env)\b/.test(line)) {
           hit = { kind: "Hard-coded credential", severity: "medium", why: "A value that looks like a credential is assigned in code.", fix: "If it is real, rotate it and load it from the environment. If it is a placeholder, make that obvious (for example `changeme`).", value: g[1] };
         }
       }

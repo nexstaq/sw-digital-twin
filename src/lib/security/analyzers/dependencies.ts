@@ -57,7 +57,7 @@ function whereIs(p: Pkg, files: Map<string, string | null>, manifest: { path: st
   const lock = files.get(p.path) ?? null;
   if (p.direct && manifest?.text && p.ecosystem === "npm") { const line = lineOf(manifest.text, `"${p.name}"`); if (line) return { path: manifest.path, line }; }
   if (lock) {
-    const line = p.ecosystem === "npm" ? lineOf(lock, `node_modules/${p.name}"`) ?? lineOf(lock, `"${p.name}"`) ?? lineOf(lock, new RegExp(`^"?${esc(p.name)}@`))
+    const line = p.ecosystem === "npm" ? lineOf(lock, `node_modules/${p.name}"`) ?? lineOf(lock, new RegExp(`^\\s*['"]?/?${esc(p.name)}@${esc(p.version)}`)) ?? lineOf(lock, new RegExp(`^\\s*['"]?/?${esc(p.name)}@`)) ?? lineOf(lock, `"${p.name}"`)
       : lineOf(lock, new RegExp(`name\\s*=\\s*"${esc(p.name)}"`));
     if (line) return { path: p.path, line };
   }
@@ -97,16 +97,23 @@ export async function analyzeDependencies(ctx: SecurityContext, o: OsvOpts = {})
     const supportsUsage = p.ecosystem === "npm" || p.ecosystem === "PyPI" || p.ecosystem === "Go";
     const loc = whereIs(p, cache, manifests.get(p.path.includes("/") ? p.path.slice(0, p.path.lastIndexOf("/")) : ""));
 
-    const reach = p.dev ? "It is a development-only dependency, so it does not ship to production, but it runs on developer machines and in CI."
+    const chain = p.via?.length ? ` It comes in through ${p.via.join(" → ")}.` : "";
+    const reach = p.dev ? `It is a development-only dependency (a build or test tool), so it does not ship to production, but it runs on developer machines and in CI.${chain}`
       : used?.length ? `Your code imports it (${used.slice(0, 3).join(", ")}${used.length > 3 ? ", …" : ""}), so the vulnerable code is reachable.`
       : p.direct ? (supportsUsage ? "You declare it directly, but no import was found in your source. It may be used indirectly or only by tooling, so check before treating this as urgent." : "You declare it directly.")
-      : "It is pulled in by another package rather than declared by you.";
+      : `It is pulled in by another package rather than declared by you.${chain}`;
     const top = vulns[0];
     const majorJump = best !== undefined && best.replace(/^v/, "").split(".")[0] !== p.version.replace(/^v/, "").split(".")[0];
     const jumpNote = majorJump ? " That is a major-version jump, so read the changelog; the advisories above list fixes on older branches too." : "";
+    const parent = p.via?.[0] ? `\`${p.via[0]}\`` : "the package that depends on it";
+    const nothingFixed = fixes.length === 0;
     const fix = best
-      ? p.direct ? `Upgrade ${p.name} to ${best} or later.${jumpNote}` : `Update the package that depends on ${p.name}, or force ${best} or later (npm \`overrides\`, yarn \`resolutions\`, pnpm \`overrides\`).${jumpNote}`
-      : "No single published version fixes all of these. Check each advisory for a workaround, or replace the package.";
+      ? p.direct ? `Upgrade ${p.name} to ${best} or later.${jumpNote}` : `Update ${parent}, which brings in ${p.name}, or force ${best} or later (npm \`overrides\`, yarn \`resolutions\`, pnpm \`overrides\`).${jumpNote}`
+      : nothingFixed
+        ? p.direct
+          ? "No fixed version has been published yet. Watch the advisory for one, check whether your code reaches the affected function, or replace the package."
+          : `No fixed version has been published yet, and you do not control ${p.name} directly. Check whether your code reaches the affected function, and update ${parent} once it ships a release that pulls in a fixed ${p.name} (it arrives through ${p.via?.length ? p.via.join(" → ") : "another package"}).`
+        : "No single published version fixes all of these. Check each advisory for a workaround, or replace the package."; 
 
     findings.push({
       id: fingerprint("dependency", p.ecosystem, p.name, p.version, p.path), ruleId: "SCA/known-vulnerability", category: "dependency", severity: worst,
@@ -116,7 +123,7 @@ export async function analyzeDependencies(ctx: SecurityContext, o: OsvOpts = {})
       fix, cwe: [...new Set(vulns.flatMap((v) => v.cwe))].slice(0, 4), owasp: "A06:2021 Vulnerable and Outdated Components",
       confidence: p.dev || (supportsUsage && !used?.length && !p.direct) ? "medium" : "high",
       detail: {
-        package: p.name, ecosystem: p.ecosystem, version: p.version, direct: !!p.direct, dev: !!p.dev, ...(supportsUsage ? { usedIn: used ?? [] } : {}),
+        package: p.name, ecosystem: p.ecosystem, version: p.version, direct: !!p.direct, dev: !!p.dev, ...(p.via ? { via: p.via } : {}), ...(supportsUsage ? { usedIn: used ?? [] } : {}),
         vulns: vulns.map(({ cwe: _c, withdrawn: _w, ...v }): Vuln => v), // eslint-disable-line @typescript-eslint/no-unused-vars
       },
     });

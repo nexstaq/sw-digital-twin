@@ -40,6 +40,8 @@ export const FindingSchema = z.object({
     package: z.string().optional(), ecosystem: z.string().optional(), version: z.string().optional(),
     /** reached from your own manifest, or only pulled in by something else */
     direct: z.boolean().optional(), dev: z.boolean().optional(),
+    /** transitive packages: the direct dependency and each package between it and this one ("why do I have this?") */
+    via: z.array(z.string()).optional(),
     /** source files that import it (the "is it actually used" signal) */
     usedIn: z.array(z.string()).optional(),
     vulns: z.array(Vuln).optional(),

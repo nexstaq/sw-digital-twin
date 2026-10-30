@@ -185,3 +185,53 @@ describe("duplicate advisories (real OSV publishes one CVE under several ids)", 
     expect(x.fix).toMatch(/Upgrade django to 5\.2\.1 or later\. That is a major-version jump/);
   });
 });
+
+describe("pnpm repositories: dev-only, chains and honest 'no fix yet'", () => {
+  const PNPM = `lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      next-auth: { specifier: ^5, version: 5.0.0 }
+    devDependencies:
+      tsx: { specifier: ^4, version: 4.0.0 }
+snapshots:
+  next-auth@5.0.0:
+    dependencies: { '@auth/core': 0.30.0 }
+  '@auth/core@0.30.0':
+    dependencies: { node-forge: 1.4.0 }
+  node-forge@1.4.0: {}
+  tsx@4.0.0:
+    dependencies: { esbuild: 0.18.20 }
+  esbuild@0.18.20: {}
+`;
+  const FORGE = { id: "GHSA-forge", aliases: ["CVE-2026-33894"], summary: "RSA signature check accepts extra elements", database_specific: { severity: "HIGH" }, affected: [{ package: { name: "node-forge", ecosystem: "npm" }, ranges: [{ events: [{ introduced: "0" }] }] }] };
+  const ESB = { id: "GHSA-esbuild", summary: "esbuild dev server lets any website read responses", database_specific: { severity: "MODERATE" }, affected: [{ package: { name: "esbuild", ecosystem: "npm" }, ranges: [{ events: [{ fixed: "0.25.0" }] }] }] };
+  const run = async () => {
+    const { f } = osv({ "node-forge@1.4.0": ["GHSA-forge"], "esbuild@0.18.20": ["GHSA-esbuild"] }, { "GHSA-forge": FORGE, "GHSA-esbuild": ESB });
+    return (await analyzeDependencies(ctx({ "pnpm-lock.yaml": PNPM, "src/a.ts": "export {}" }), { fetch: f })).findings;
+  };
+  it("a transitive package says how it got here, and where in the lockfile it is", async () => {
+    const x = (await run()).find((f) => f.detail.package === "node-forge")!;
+    expect(x.detail.via).toEqual(["next-auth", "@auth/core"]);
+    expect(x.reason).toContain("It comes in through next-auth → @auth/core");
+    expect(x.line).toBe(13); // the real line of `node-forge@1.4.0` in the lockfile, not just the file
+    expect(x.path).toBe("pnpm-lock.yaml");
+  });
+  it("when no fix exists it says so plainly, and names the package that brings it in", async () => {
+    const x = (await run()).find((f) => f.detail.package === "node-forge")!;
+    expect(x.fix).toMatch(/^No fixed version has been published yet/);
+    expect(x.fix).toContain("next-auth → @auth/core");
+    expect(x.fix).not.toMatch(/No single published version/);
+    expect(x.fix).not.toMatch(/replace/i); // advising "replace your framework" for a transitive flaw would be absurd
+    expect(x.fix).toContain("update `next-auth` once it ships");
+  });
+  it("a build tool reachable only from devDependencies is called dev-only and ranks below the same finding in production", async () => {
+    const found = await run();
+    const esb = found.find((f) => f.detail.package === "esbuild")!;
+    expect(esb.detail.dev).toBe(true);
+    expect(esb.reason).toContain("development-only");
+    expect(esb.reason).toContain("through tsx");
+    expect(esb.fix).toMatch(/Update `tsx`, which brings in esbuild, or force 0\.25\.0/);
+    expect(esb.confidence).toBe("medium");
+  });
+});
