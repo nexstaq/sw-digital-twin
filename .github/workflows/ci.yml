@@ -14,6 +14,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - run: npm ci
+      # Next generates global types (LayoutProps, route types) into its build folder; a fresh checkout has none yet
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - name: Unit tests
         run: npx vitest run
