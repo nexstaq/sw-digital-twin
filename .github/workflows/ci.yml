@@ -1,0 +1,33 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request: {}
+
+permissions: { contents: read }
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: Unit tests
+        run: npx vitest run
+        env:
+          # optional: also runs the Postgres adapter tests (throwaway schemas, dropped afterwards). Unset on forks, so they skip.
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+      - run: npx playwright install --with-deps chromium
+      - name: End-to-end (production build against a mock GitHub)
+        run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
