@@ -134,3 +134,4 @@ GitHub webhooks (`workflow_run`, `deployment_status`, `check_run`, `push`) → Q
 3. SaaS first; self-hostable after features are proven. Keep it cheap later: no vendor-specific code outside adapters (LLM, queue, storage, auth).
 4. We are not a telemetry backend. Connectors read from the customer's tools; we store only compact health rollups. Signal order: GitHub (free, zero-setup) → Sentry → Vercel → OTLP/Datadog.
 5. LLM access goes through one provider-agnostic layer (AI Gateway, BYOK-capable). Free Gemini key is OK for dev on public repos only.
+6. Auth (decided in P4b): sign-in is the GitHub App's own user authorization, not Clerk. The user's GitHub token is what authorises private repos, so one registration gives login + access, with no extra vendor or user table. The auth layer is two functions (`viewerOf`, `authorizeRepo`), so Clerk can be added later for non-GitHub logins. See docs/AUTH.md.
