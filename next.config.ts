@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 import { withBotId } from "botid/next/config";
 import { securityHeaders } from "./src/lib/security/headers";
 
+const TREE_SITTER_FILES = [
+  "./node_modules/web-tree-sitter/tree-sitter.wasm",
+  "./node_modules/tree-sitter-wasms/out/tree-sitter-{typescript,tsx,javascript,python}.wasm",
+];
+
 const nextConfig: NextConfig = {
   cacheComponents: true,
   poweredByHeader: false,
@@ -11,7 +16,9 @@ const nextConfig: NextConfig = {
     const prod = process.env.NODE_ENV === "production";
     return [
       { source: "/api/badge/:owner/:repo", headers: securityHeaders(prod, { embeddable: true }) },
-      { source: "/((?!api/badge/).*)", headers: securityHeaders(prod) },
+      // the report is a static document: no scripts are allowed to run in it, whatever the findings contain
+      { source: "/api/security/report", headers: securityHeaders(prod, { locked: true }) },
+      { source: "/((?!api/badge/|api/security/report).*)", headers: securityHeaders(prod) },
     ];
   },
   partialPrefetching: true,
@@ -27,10 +34,9 @@ const nextConfig: NextConfig = {
   // but make sure they ship with the scan function when deployed.
   serverExternalPackages: ["web-tree-sitter", "tree-sitter-wasms"],
   outputFileTracingIncludes: {
-    "/api/scan": [
-      "./node_modules/web-tree-sitter/tree-sitter.wasm",
-      "./node_modules/tree-sitter-wasms/out/tree-sitter-{typescript,tsx,javascript,python}.wasm",
-    ],
+    // both functions parse source with tree-sitter, so both must ship the grammars
+    "/api/scan": TREE_SITTER_FILES,
+    "/api/security/scan": TREE_SITTER_FILES,
   },
 };
 

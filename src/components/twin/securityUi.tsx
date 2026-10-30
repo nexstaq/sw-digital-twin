@@ -13,7 +13,7 @@ export const SEV: Record<Severity, { label: string; Icon: LucideIcon; cls: strin
   info: { label: "Info", Icon: Info, cls: "border border-line bg-raised text-ink-faint", bar: "bg-line" },
 };
 
-export const CATEGORY_LABEL: Record<Category, string> = { dependency: "Dependencies", secret: "Secrets", pipeline: "Pipelines", container: "Containers" };
+export const CATEGORY_LABEL: Record<Category, string> = { dependency: "Dependencies", secret: "Secrets", pipeline: "Pipelines", container: "Containers", code: "Code" };
 
 export function SeverityBadge({ severity, compact }: { severity: Severity; compact?: boolean }) {
   const s = SEV[severity];
@@ -22,13 +22,13 @@ export function SeverityBadge({ severity, compact }: { severity: Severity; compa
 
 export const where = (f: Pick<Finding, "path" | "line">) => (f.line ? `${f.path}:${f.line}` : f.path);
 
-/** One finding as a row: what, how bad, where. */
-export function FindingRow({ f, onOpen }: { f: Finding; onOpen: (f: Finding) => void }) {
+/** One finding as a row: what, how bad, where. `isNew` marks one that was not in the previous scan. */
+export function FindingRow({ f, onOpen, isNew }: { f: Finding; onOpen: (f: Finding) => void; isNew?: boolean }) {
   return (
     <button onClick={() => onOpen(f)} className="flex w-full items-start gap-2 rounded-lg bg-raised px-2.5 py-2 text-left hover:ring-1 hover:ring-accent/50">
       <SeverityBadge severity={f.severity} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs text-ink">{f.title}</span>
+        <span className="block truncate text-xs text-ink">{isNew && <span className="mr-1.5 rounded bg-accent/20 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-accent">New</span>}{f.title}</span>
         <span className="block truncate font-mono text-[11px] text-ink-faint">{where(f)}</span>
       </span>
     </button>
@@ -64,5 +64,21 @@ export function SeverityBar({ counts }: { counts: Record<Severity, number> }) {
         {SEVERITIES.filter((s) => counts[s]).map((s) => <span key={s} className="flex items-center gap-1"><span className={`h-2 w-2 rounded-sm ${SEV[s].bar}`} aria-hidden />{counts[s]} {SEV[s].label.toLowerCase()}</span>)}
       </div>
     </div>
+  );
+}
+
+/** The safety score over the last scans. The final dot is today; higher is safer. */
+export function TrendLine({ points, w = 120, h = 28 }: { points: { score: number }[]; w?: number; h?: number }) {
+  if (points.length < 2) return null;
+  const xs = (i: number) => 3 + (i * (w - 6)) / (points.length - 1);
+  const ys = (v: number) => h - 3 - (Math.max(0, Math.min(100, v)) / 100) * (h - 6);
+  const pts = points.map((p, i) => `${xs(i).toFixed(1)},${ys(p.score).toFixed(1)}`).join(" ");
+  const first = points[0].score, last = points.at(-1)!.score;
+  const color = last > first ? "var(--color-nominal)" : last < first ? "var(--color-failing)" : "var(--color-unknown)";
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Safety score over the last ${points.length} scans: ${first} then ${last}${last > first ? ", improving" : last < first ? ", getting worse" : ", unchanged"}`}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" opacity={0.9} />
+      <circle cx={xs(points.length - 1)} cy={ys(last)} r={3} fill={color} />
+    </svg>
   );
 }

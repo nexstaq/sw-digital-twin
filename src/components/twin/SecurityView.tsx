@@ -5,6 +5,7 @@ import { ArrowLeft, Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
 import { ancestry } from "@/lib/graph/nav";
 import type { TwinGraph } from "@/lib/graph/types";
 import { findingsUnder, mapFindings, posture, securityGraph } from "@/lib/security/map";
+import { attackPaths, pathHighlight, type AttackPath } from "@/lib/security/paths";
 import type { Category, Finding, FindingSet } from "@/lib/security/types";
 import { useTwin } from "@/lib/store";
 import { Canvas } from "./Canvas";
@@ -27,7 +28,7 @@ function Message({ icon, title, children }: { icon: React.ReactNode; title: stri
 }
 
 /** Drawer section: what is wrong inside the selected part, worst first. Clicking one opens its deep dive. */
-function NodeFindings({ list, onOpen }: { list: Finding[]; onOpen: (f: Finding) => void }) {
+function NodeFindings({ list, onOpen, newIds }: { list: Finding[]; onOpen: (f: Finding) => void; newIds: Set<string> }) {
   const [all, setAll] = useState(false);
   const shown = all ? list : list.slice(0, 6);
   return (
@@ -35,7 +36,7 @@ function NodeFindings({ list, onOpen }: { list: Finding[]; onOpen: (f: Finding) 
       <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-ink-faint">Security findings{list.length ? ` · ${list.length}` : ""}</h3>
       {list.length === 0 ? <p className="text-xs text-ink-dim">Nothing found in this part.</p> : (
         <div className="space-y-1.5">
-          {shown.map((f) => <FindingRow key={f.id} f={f} onOpen={onOpen} />)}
+          {shown.map((f) => <FindingRow key={f.id} f={f} onOpen={onOpen} isNew={newIds.has(f.id)} />)}
           {list.length > shown.length && <button onClick={() => setAll(true)} className="text-xs text-accent hover:underline">Show {list.length - shown.length} more</button>}
         </div>
       )}
@@ -51,6 +52,13 @@ function Ready({ graph, set, repo, scan, scanning, scanError }: { graph: TwinGra
   const home = useMemo(() => mapFindings(graph, all), [graph, all]);
   const view = useMemo(() => securityGraph(graph, visible, !!set), [graph, visible, set]);
   const p = useMemo(() => posture(all, !!set), [all, set]);
+  // paths use EVERY finding, not the category filter: the filter recolours the map, it does not change what is reachable
+  const paths = useMemo(() => attackPaths(graph, all, home, set?.exposure), [graph, all, home, set]);
+  const highlight = useTwin((st) => st.highlight);
+  // active = the canvas is showing this path right now, so dismissing the highlight clears the card too
+  const activePath = highlight?.mode === "impact" ? paths.find((x) => x.entry === highlight.focusId && x.target === highlight.ids.at(-1))?.id ?? null : null;
+  const showPath = (ap: AttackPath) => useTwin.getState().setHighlight(pathHighlight(ap, graph));
+  const labelOf = (id: string) => graph.nodes.find((n) => n.id === id)?.label ?? id;
 
   // "ops" is the lens that steps quiet parts back and shows each tile's top reason, which is what a risk view wants
   useEffect(() => { useTwin.getState().setLens("ops"); return () => useTwin.getState().setLens("overview"); }, []);
@@ -74,9 +82,9 @@ function Ready({ graph, set, repo, scan, scanning, scanError }: { graph: TwinGra
           </div>
         )}
         headerExtra={<a href={`/scan?repo=${encodeURIComponent(repo)}`} className="flex items-center gap-1.5 rounded-lg border border-line bg-surface/80 px-2.5 py-1.5 text-xs text-ink-dim hover:text-ink"><ArrowLeft size={13} aria-hidden /> Health map</a>}
-        nodeEditor={(node) => <NodeFindings key={node.id} list={findingsUnder(graph, visible, home, node.id)} onOpen={setOpen} />}
+        nodeEditor={(node) => <NodeFindings key={node.id} list={findingsUnder(graph, visible, home, node.id)} onOpen={setOpen} newIds={new Set(set?.delta?.newIds ?? [])} />}
       />
-      <PosturePanel set={set} filter={filter} onFilter={setFilter} visible={visible} onOpen={(f) => { setOpen(f); locate(f); }} onScan={scan} scanning={scanning} scanError={scanError} />
+      <PosturePanel repo={repo} set={set} filter={filter} onFilter={setFilter} visible={visible} onOpen={(f) => { setOpen(f); locate(f); }} onScan={scan} scanning={scanning} scanError={scanError} paths={paths} label={labelOf} activePath={activePath} onShowPath={showPath} />
       {open && set && <FindingPanel finding={open} repo={repo} sha={set.sha} onClose={() => setOpen(null)} onLocate={() => locate(open)} />}
     </div>
   );

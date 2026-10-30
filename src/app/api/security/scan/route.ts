@@ -4,6 +4,7 @@ import { persist } from "@/lib/persist";
 import { denyBots } from "@/lib/security/bot";
 import { LIMITS, rateLimit, tooMany } from "@/lib/security/ratelimit";
 import { analyzeDirectory } from "@/lib/security/scan";
+import { withHistory } from "@/lib/security/trend";
 
 export const maxDuration = 120;
 
@@ -33,8 +34,13 @@ export async function POST(req: Request) {
   try {
     checkout = await cloneRepo(parseRepo(repo), req.signal, a.token);
     const sha = (checkout.head ?? (await gitHead(checkout.dir)))?.sha ?? checkout.sha;
-    const set = await analyzeDirectory(checkout.dir, repo, sha);
-    await persist().putFindings(repo, set);
+    // the saved map tells us which files are request handlers, for the exposure check behind attack paths
+    const store = persist();
+    const latest = (await store.listSnapshots(repo)).at(-1);
+    const map = latest && (await store.getSnapshot(repo, latest.sha));
+    const endpointFiles = map ? [...new Set(map.graph.nodes.filter((n) => n.kind === "endpoint").flatMap((n) => n.evidence.map((e) => e.path)))] : [];
+    const set = withHistory(await analyzeDirectory(checkout.dir, repo, sha, {}, { endpointFiles }), await store.getFindings(repo));
+    await store.putFindings(repo, set);
     return withSetCookie(Response.json(set, { headers: NO_STORE }), a.setCookie);
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "The security scan failed." }, { status: 502, headers: NO_STORE });

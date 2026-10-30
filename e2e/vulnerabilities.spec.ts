@@ -89,6 +89,101 @@ test.describe("security analysis", () => {
     await expect(d).toHaveCount(0);
   });
 
+  test("code analysis: unsafe SQL in a request handler, pinned to the line, with the safe rewrite", async ({ page }) => {
+    await scanVault(page);
+    await posture(page).getByRole("button", { name: /^Code/ }).click();
+    await posture(page).getByRole("button", { name: /SQL built from request data/ }).click();
+    const d = panel(page);
+    await expect(d.getByRole("link", { name: /app\/api\/orders\/route\.ts:5/ })).toBeVisible();
+    await expect(d.locator("pre")).toContainText("UPDATE orders SET paid = true"); // the real line, fetched from GitHub now
+    await expect(d.locator("pre")).toContainText("searchParams");
+    await expect(d.getByText("CWE-89")).toBeVisible();
+    await expect(d).toContainText("placeholders"); // the fix
+    await expect(d).toContainText("rewrite the query");
+  });
+
+  test("the authentication note is low-confidence and says it can be wrong", async ({ page }) => {
+    await scanVault(page);
+    await posture(page).getByRole("button", { name: /^Code/ }).click();
+    await posture(page).getByRole("button", { name: /Endpoint accepts writes and shows no authentication check/ }).click();
+    const d = panel(page);
+    await expect(d.getByText("Low", { exact: true }).first()).toBeVisible();
+    await expect(d.getByText("low confidence")).toBeVisible();
+    await expect(d).toContainText("false alarm");
+    await expect(d.getByText("CWE-306")).toBeVisible();
+  });
+
+  test("attack paths: from the public endpoint to the datastore, and shown on the map", async ({ page }) => {
+    await scanVault(page);
+    const paths = posture(page).getByLabel("Attack paths");
+    await expect(paths).toBeVisible();
+    const card = paths.getByRole("listitem").filter({ hasText: "Data & messaging" }).first();
+    await expect(card).toContainText("acme-shop");
+    await expect(card).toContainText("1 public endpoint in acme-shop, 1 of which accepts writes with no authentication check");
+    await expect(card).toContainText("Reaches Data & messaging (reads)");
+    await expect(card).toContainText("via web");
+    // hosting is not an attack route: no path ends at the environment the service is deployed to
+    await expect(paths.getByRole("listitem").filter({ hasText: "Reaches Infrastructure" })).toHaveCount(0);
+
+    await card.getByRole("button", { name: "Show on map" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Attack path: acme-shop → Data & messaging" })).toBeVisible();
+    await expect(card).toHaveClass(/border-failing/); // the card shows it is the one on the map
+    await page.getByRole("button", { name: "Clear highlight" }).click();
+    await expect(card).not.toHaveClass(/border-failing/);
+  });
+
+  test("reports: a printable HTML report, SARIF for code-scanning tools, and JSON, all behind push access", async ({ page, request }) => {
+    await scanVault(page);
+    const q = "/api/security/report?repo=acme/vault";
+
+    const html = await page.request.get(`${q}&format=html`);
+    expect(html.status()).toBe(200);
+    expect(html.headers()["content-type"]).toContain("text/html");
+    expect(html.headers()["content-security-policy"]).toContain("default-src 'none'"); // a report needs no scripts, so none are allowed
+    const body = await html.text();
+    for (const s of ["Security report", "acme/vault", "2 critical issues to fix first", "AWS access key ID committed in config.ts", "SQL built from request data", "How an attacker could get in", "Save as PDF", "cannot prove software is secure"]) expect(body, s).toContain(s);
+    expect(body).not.toContain(AWS); // never the secret itself
+    expect(body).not.toContain("<script");
+
+    const sarif = await page.request.get(`${q}&format=sarif&download=1`);
+    expect(sarif.headers()["content-type"]).toContain("sarif");
+    expect(sarif.headers()["content-disposition"]).toMatch(/attachment; filename="security-acme-vault-[0-9a-f]{7}\.sarif"/);
+    const doc = await sarif.json();
+    expect(doc.version).toBe("2.1.0");
+    const results = doc.runs[0].results as { ruleId: string; level: string }[];
+    expect(results.length).toBeGreaterThan(8);
+    expect(results.some((r) => r.ruleId === "CODE/sql-injection" && r.level === "error")).toBe(true);
+    expect(JSON.stringify(doc)).not.toContain(AWS);
+
+    const json = await (await page.request.get(`${q}&format=json`)).json();
+    expect(json.findings.length).toBe(results.length);
+
+    expect((await page.request.get(`${q}&format=pdf`)).status()).toBe(400);
+    for (const f of ["html", "sarif", "json"]) expect((await request.get(`${q}&format=${f}`)).status(), `anonymous ${f}`).toBe(401);
+  });
+
+  test("the report links are on the posture card", async ({ page }) => {
+    await scanVault(page);
+    const reports = page.getByLabel("Reports");
+    await expect(reports.getByRole("link", { name: "Open report" })).toHaveAttribute("href", /format=html/);
+    await expect(reports.getByRole("link", { name: "Open report" })).toHaveAttribute("target", "_blank");
+    await expect(reports.getByRole("link", { name: "SARIF" })).toHaveAttribute("href", /format=sarif&download=1/);
+  });
+
+  test("a second scan says what changed since the first, and the report says so too", async ({ page }) => {
+    await scanVault(page);
+    await posture(page).getByRole("button", { name: "Scan again" }).click();
+    await expect(posture(page).getByLabel("Change since the previous scan")).toContainText("No change since the previous scan.", { timeout: 30_000 });
+    // nothing is new, so no finding carries a "New" tag
+    await expect(posture(page).getByText("New", { exact: true })).toHaveCount(0);
+    const report = await (await page.request.get("/api/security/report?repo=acme/vault&format=html")).text();
+    expect(report).toContain("No change since the previous scan.");
+    // the stored scan has the history the UI is drawing from
+    const { set } = await (await page.request.get("/api/security/findings?repo=acme/vault")).json();
+    expect(set.delta).toMatchObject({ newIds: [], fixed: 0 });
+    expect(set.trend.length).toBeGreaterThanOrEqual(1); // same commit re-scanned: one point, not a duplicate
+  });
+
   test("drilling from a block lists what is wrong inside it, worst first", async ({ page }) => {
     await scanVault(page);
     await tile(page, "CI/CD pipelines").click();

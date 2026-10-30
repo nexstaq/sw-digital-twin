@@ -7,8 +7,8 @@ export interface Header { key: string; value: string }
  * undo the prerendering this app relies on. So `script-src` needs 'unsafe-inline' for Next's own bootstrap scripts. What the
  * policy still buys: no eval, no plugins, no foreign script/connect origins, no framing, no <base> or form hijacking.
  */
-export function securityHeaders(prod: boolean, o: { embeddable?: boolean } = {}): Header[] {
-  const csp = [
+export function securityHeaders(prod: boolean, o: { embeddable?: boolean; /** a static document that needs no scripts at all (the security report) */ locked?: boolean } = {}): Header[] {
+  const csp = o.locked ? "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" : [
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline'${prod ? "" : " 'unsafe-eval'"}`, // dev only: React uses eval for readable stack traces
     "style-src 'self' 'unsafe-inline'", // React Flow and Framer Motion set inline styles

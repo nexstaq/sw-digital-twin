@@ -34,3 +34,20 @@ describe("embeddable headers", () => {
     expect(securityHeaders(true, { embeddable: true }).find((h) => h.key === "X-Frame-Options")!.value).toBe("DENY");
   });
 });
+
+describe("locked headers (the security report)", () => {
+  const csp = (locked: boolean) => securityHeaders(true, { locked }).find((h) => h.key === "Content-Security-Policy")!.value;
+  it("allow no script, no network and no framing at all", () => {
+    const c = csp(true);
+    expect(c).toContain("default-src 'none'");
+    expect(c).not.toMatch(/script-src/);
+    expect(c).toContain("frame-ancestors 'none'");
+    expect(c).toContain("form-action 'none'");
+    expect(csp(false)).toContain("script-src"); // ordinary pages are unchanged
+  });
+  it("still carry the rest of the hardening headers", () => {
+    const h = securityHeaders(true, { locked: true });
+    expect(h.find((x) => x.key === "X-Content-Type-Options")!.value).toBe("nosniff");
+    expect(h.find((x) => x.key === "Strict-Transport-Security")).toBeTruthy();
+  });
+});

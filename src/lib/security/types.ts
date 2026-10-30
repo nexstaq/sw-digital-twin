@@ -4,7 +4,7 @@ export const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const
 export const SeveritySchema = z.enum(SEVERITIES);
 export type Severity = z.infer<typeof SeveritySchema>;
 
-export const CATEGORIES = ["dependency", "secret", "pipeline", "container"] as const;
+export const CATEGORIES = ["dependency", "secret", "pipeline", "container", "code"] as const;
 export const CategorySchema = z.enum(CATEGORIES);
 export type Category = z.infer<typeof CategorySchema>;
 
@@ -59,6 +59,17 @@ export const FindingSetSchema = z.object({
   scannedAt: z.number(),
   findings: z.array(FindingSchema),
   stats: z.object({ files: z.number(), packages: z.number(), lockfiles: z.number() }),
+  /** how exposed the entry points are, for attack paths. Present when a map existed to find endpoints in. */
+  exposure: z.object({
+    endpointFiles: z.number(),
+    /** endpoint files that accept writes and show no authentication check (and no project-wide auth middleware) */
+    unauthenticatedWrites: z.array(z.string()),
+    middlewareAuth: z.boolean(),
+  }).optional(),
+  /** safety score and severity counts per scan, oldest first (the last 30) */
+  trend: z.array(z.object({ sha: z.string(), scannedAt: z.number(), score: z.number(), total: z.number(), counts: z.record(z.string(), z.number()) })).optional(),
+  /** what changed since the scan before this one, judged by stable finding id */
+  delta: z.object({ newIds: z.array(z.string()), fixed: z.number(), previousSha: z.string(), previousScannedAt: z.number() }).optional(),
   /** what could not be checked (OSV unreachable, scan capped, …): never silently "all clear" */
   warnings: z.array(z.string()),
 });
