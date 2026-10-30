@@ -15,6 +15,12 @@
 
 # next.js
 /.next/
+/.next-e2e/
+/extension/dist/
+/extension/dist-e2e/
+/extension/*.zip
+/test-results/
+/playwright-report/
 /out/
 
 # production
@@ -32,6 +38,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +46,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.cache/
+.data/
+
+# agent skills installed by the Vercel/Neon CLIs
+/.agents/
+/skills-lock.json
