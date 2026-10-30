@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Mission Control for Code",
+  "short_name": "View Twin",
+  "version": "0.1.0",
+  "description": "Adds a View Twin button and a GO / HOLD / NO-GO badge to GitHub repositories, linking to the live map of how the software is built and run.",
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "permissions": [],
+  "host_permissions": ["__TWIN_ORIGIN__/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://github.com/*/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ]
+}
