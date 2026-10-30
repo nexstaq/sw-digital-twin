@@ -1,0 +1,5 @@
+Contact: https://github.com/nexstaq/sw-digital-twin/security/advisories/new
+Expires: 2027-10-30T00:00:00.000Z
+Preferred-Languages: en
+Policy: https://github.com/nexstaq/sw-digital-twin/security/policy
+Canonical: https://sw-digital-twin.nexstaq.com/.well-known/security.txt

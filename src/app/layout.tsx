@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL((process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "")),
   title: "Mission Control · Software Digital Twin",
   description: "A live, zoomable map of how your software is built, shipped and running.",
+  applicationName: "Mission Control for Code",
+  openGraph: { title: "Mission Control for Code", description: "A live, zoomable map of how your software is built, shipped and running.", type: "website" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
