@@ -13,7 +13,7 @@ export const SEV: Record<Severity, { label: string; Icon: LucideIcon; cls: strin
   info: { label: "Info", Icon: Info, cls: "border border-line bg-raised text-ink-faint", bar: "bg-line" },
 };
 
-export const CATEGORY_LABEL: Record<Category, string> = { dependency: "Dependencies", secret: "Secrets", pipeline: "Pipelines", container: "Containers", code: "Code" };
+export const CATEGORY_LABEL: Record<Category, string> = { dependency: "Dependencies", secret: "Secrets", pipeline: "Pipelines", container: "Containers", code: "Code", runtime: "Live testing" };
 
 export function SeverityBadge({ severity, compact }: { severity: Severity; compact?: boolean }) {
   const s = SEV[severity];
@@ -82,3 +82,17 @@ export function TrendLine({ points, w = 120, h = 28 }: { points: { score: number
     </svg>
   );
 }
+
+/** Human name for where a finding came from, or undefined for our own analyzers. */
+export function sourceLabel(source: string | undefined, name?: string): string | undefined {
+  if (!source) return undefined;
+  if (source === "dependabot") return "GitHub Dependabot";
+  if (source === "codeql" || source === "code-scanning") return "GitHub code scanning";
+  if (source === "secret-scanning") return "GitHub secret scanning";
+  if (source.startsWith("sarif:")) return `${name || source.slice(6)} (imported report)`;
+  return source;
+}
+/** Findings from live testing point at a URL, not a file: there is no GitHub file or code excerpt to show for them. */
+export const isUrlPath = (p: string) => /^https?:\/\//.test(p);
+/** A real repository file we can link to and show lines from. */
+export const isRepoFile = (p: string) => !isUrlPath(p) && !p.startsWith("(");

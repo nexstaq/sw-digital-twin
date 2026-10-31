@@ -50,5 +50,13 @@ export function useSecurity(repo: string) {
     } catch (e) { setScanError(e instanceof Error ? e.message : "The scan failed."); } finally { setScanning(false); }
   }, [q]);
 
-  return { state, scan, scanning, scanError };
+  /** re-read the stored scan (after a report was imported) */
+  const reload = useCallback(async () => {
+    const r = await fetch(`/api/security/findings?repo=${q}`, { cache: "no-store" });
+    if (!r.ok) return;
+    const { set } = (await r.json()) as { set: FindingSet | null };
+    setState((s) => (s.kind === "ready" ? { ...s, set } : s));
+  }, [q]);
+
+  return { state, scan, scanning, scanError, reload };
 }

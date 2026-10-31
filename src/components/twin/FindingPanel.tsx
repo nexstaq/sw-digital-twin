@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ExternalLink, Locate, X } from "lucide-react";
 import type { Finding } from "@/lib/security/types";
-import { CATEGORY_LABEL, SeverityBadge, where } from "./securityUi";
+import { CATEGORY_LABEL, SeverityBadge, isRepoFile, sourceLabel, where } from "./securityUi";
 
 interface Snippet { sha: string; highlight: number; lines: { n: number; text: string }[]; redacted?: string }
 
@@ -13,7 +13,7 @@ export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { fin
   const line = f.line;
 
   useEffect(() => {
-    if (!line) return;
+    if (!line || !isRepoFile(f.path)) return;
     const ctl = new AbortController();
     fetch(`/api/security/snippet?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(f.path)}&line=${line}`, { signal: ctl.signal, cache: "no-store" })
       .then(async (r) => (r.ok ? { id: f.id, data: (await r.json()) as Snippet } : { id: f.id, error: ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? "Could not load the code." }))
@@ -24,7 +24,11 @@ export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { fin
 
   const mine = snip?.id === f.id ? snip : null; // never flash the previous finding's code
   const d = f.detail;
+  const file = isRepoFile(f.path);
   const gh = `https://github.com/${repo}/blob/${sha}/${f.path.split("/").map(encodeURIComponent).join("/")}${line ? `#L${line}` : ""}`;
+  const from = sourceLabel(d.source, d.sourceName);
+  const alsoBy = (d.alsoReportedBy ?? []).map((x) => sourceLabel(x));
+  const ext = d.url && /^https:\/\//.test(d.url) ? d.url : undefined;
 
   return (
     <aside role="dialog" aria-label={`Finding: ${f.title}`} className="absolute bottom-3 right-3 top-3 z-40 flex w-[480px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface/98 shadow-2xl backdrop-blur">
@@ -43,9 +47,18 @@ export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { fin
 
       <div className="flex-1 space-y-5 overflow-y-auto p-4 text-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <a href={gh} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-1.5 rounded-lg bg-raised px-2.5 py-1.5 font-mono text-xs text-ink-dim hover:text-ink"><span className="truncate">{where(f)}</span><ExternalLink size={12} aria-hidden /><span className="sr-only">(opens GitHub)</span></a>
-          <button onClick={onLocate} className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-dim hover:text-ink"><Locate size={12} aria-hidden /> Show on map</button>
+          {file
+            ? <a href={gh} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-1.5 rounded-lg bg-raised px-2.5 py-1.5 font-mono text-xs text-ink-dim hover:text-ink"><span className="truncate">{where(f)}</span><ExternalLink size={12} aria-hidden /><span className="sr-only">(opens GitHub)</span></a>
+            : <span className="flex min-w-0 items-center gap-1.5 rounded-lg bg-raised px-2.5 py-1.5 font-mono text-xs text-ink-dim"><span className="truncate">{where(f)}</span></span>}
+          {file && <button onClick={onLocate} className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-dim hover:text-ink"><Locate size={12} aria-hidden /> Show on map</button>}
         </div>
+
+        {(from || alsoBy.length > 0) && (
+          <p className="text-xs text-ink-dim" aria-label="Where this finding came from">
+            {from && <>Reported by <span className="text-ink">{from}</span>.</>}{alsoBy.length > 0 && <> Also confirmed by <span className="text-ink">{alsoBy.join(", ")}</span>.</>}
+            {ext && <> <a href={ext} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Open it there</a>.</>}
+          </p>
+        )}
 
         {line && (
           <section aria-label="Code">

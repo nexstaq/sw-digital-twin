@@ -44,7 +44,7 @@ function NodeFindings({ list, onOpen, newIds }: { list: Finding[]; onOpen: (f: F
   );
 }
 
-function Ready({ graph, set, repo, scan, scanning, scanError }: { graph: TwinGraph; set: FindingSet | null; repo: string; scan: () => void; scanning: boolean; scanError: string | null }) {
+function Ready({ graph, set, repo, scan, scanning, scanError, reload }: { graph: TwinGraph; set: FindingSet | null; repo: string; scan: () => void; scanning: boolean; scanError: string | null; reload: () => Promise<void> }) {
   const [filter, setFilter] = useState<Category | null>(null);
   const [open, setOpen] = useState<Finding | null>(null);
   const all = useMemo(() => set?.findings ?? [], [set]);
@@ -84,7 +84,7 @@ function Ready({ graph, set, repo, scan, scanning, scanError }: { graph: TwinGra
         headerExtra={<a href={`/scan?repo=${encodeURIComponent(repo)}`} className="flex items-center gap-1.5 rounded-lg border border-line bg-surface/80 px-2.5 py-1.5 text-xs text-ink-dim hover:text-ink"><ArrowLeft size={13} aria-hidden /> Health map</a>}
         nodeEditor={(node) => <NodeFindings key={node.id} list={findingsUnder(graph, visible, home, node.id)} onOpen={setOpen} newIds={new Set(set?.delta?.newIds ?? [])} />}
       />
-      <PosturePanel repo={repo} set={set} filter={filter} onFilter={setFilter} visible={visible} onOpen={(f) => { setOpen(f); locate(f); }} onScan={scan} scanning={scanning} scanError={scanError} paths={paths} label={labelOf} activePath={activePath} onShowPath={showPath} />
+      <PosturePanel repo={repo} onImported={() => void reload()} set={set} filter={filter} onFilter={setFilter} visible={visible} onOpen={(f) => { setOpen(f); locate(f); }} onScan={scan} scanning={scanning} scanError={scanError} paths={paths} label={labelOf} activePath={activePath} onShowPath={showPath} />
       {open && set && <FindingPanel finding={open} repo={repo} sha={set.sha} onClose={() => setOpen(null)} onLocate={() => locate(open)} />}
     </div>
   );
@@ -97,7 +97,7 @@ export function SecurityView() {
 }
 
 function Loaded({ repo }: { repo: string }) {
-  const { state, scan, scanning, scanError } = useSecurity(repo);
+  const { state, scan, scanning, scanError, reload } = useSecurity(repo);
   const back = `/scan?repo=${encodeURIComponent(repo)}`;
   switch (state.kind) {
     case "loading": return <main className="grid min-h-dvh place-items-center text-ink-dim"><Loader2 className="animate-spin" aria-label="Loading" /></main>;
@@ -110,6 +110,6 @@ function Loaded({ repo }: { repo: string }) {
     );
     case "nomap": return <Message icon={<ShieldCheck size={32} />} title="Map the repository first"><p>The security view colours the map, so it needs one.</p><a className="text-accent underline" href={back}>Map {repo}</a></Message>;
     case "error": return <Message icon={<ShieldCheck size={32} />} title="Couldn't load"><p role="alert">{state.message}</p></Message>;
-    default: return <Ready graph={state.graph} set={state.set} repo={repo} scan={scan} scanning={scanning} scanError={scanError} />;
+    default: return <Ready graph={state.graph} set={state.set} repo={repo} scan={scan} scanning={scanning} scanError={scanError} reload={reload} />;
   }
 }

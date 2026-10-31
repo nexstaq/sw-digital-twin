@@ -1,4 +1,4 @@
-# Security analysis (S1 and S2)
+# Security analysis (S1, S2 and S3)
 
 A security view of the same map. Open **Security** from the health map (maintainers only), run a scan, and see which parts of the
 system carry which risks, down to the file and line.
@@ -76,11 +76,55 @@ are untrusted), only `https` links are emitted, no secret value appears, and the
 Each scan is compared with the previous one by stable finding id: **new**, **fixed**, and the safety score over the last 30 scans.
 Re-scanning the same commit replaces its point. History lives inside the stored scan; no extra tables.
 
-## Roadmap
-S2: done (above). S3: GitHub Dependabot / code-scanning / secret-scanning alerts, SARIF import, the CI Action. S4: passive external checks, AI
-explanations, OWASP/CWE compliance views.
+## S3: other sources, and live testing from your own CI
 
-## Not yet
+### GitHub's own alerts (`github-alerts.ts`)
+Each scan also asks GitHub for open **Dependabot**, **code scanning** and **secret scanning** alerts. Every source reports its own
+status, so you see "Dependabot 4 · code scanning not switched on · secret scanning needs a permission", never a silent empty list.
+An alert about a package our own scan also found is merged into that finding ("also confirmed by Dependabot"), not duplicated.
+GitHub's secret-scanning API returns **the secret itself**: it is never read into a finding, and tests assert it appears nowhere we
+store, show or export.
+
+**One-time setup (only the App's owner can do this).** The App was created read-only for contents, actions, deployments, checks and
+metadata. To read alerts, open the App's settings > Permissions & events > Repository permissions and set **Dependabot alerts**,
+**Code scanning alerts** and **Secret scanning alerts** to *Read-only*, then accept the updated permissions on each installation
+(GitHub shows a banner and emails the installation owner). Availability is GitHub's: Dependabot alerts must be enabled on the
+repository; code and secret scanning are free on public repositories and need GitHub Advanced Security on private ones. Until
+then, the panel says exactly which it is.
+
+### SARIF import (`sarif-import.ts`, `POST /api/security/import`)
+Any tool that writes SARIF (Semgrep, CodeQL, Trivy, ZAP, Nuclei, gitleaks, Checkov…) can feed the same map. Reports are untrusted:
+5 MB cap, 2000 results, parsed defensively (never throws, counts what it skipped), absolute or `..` paths refused, URL query
+strings and fragments removed (they can carry tokens), secret-shaped text redacted, code snippets ignored. A new report from a tool
+replaces that tool's previous one; imports survive re-scans; an imported report can be removed (`DELETE`, maintainers only).
+A finding about a URL (live testing) is its own category, is not placed on the map, and has no GitHub file link or code excerpt.
+
+### Authentication for CI: GitHub Actions OIDC (`oidc.ts`)
+A workflow cannot use a browser session, and a long-lived token would be a secret to leak. Instead the run asks GitHub for a
+short-lived signed token naming its repository, and presents it as `Authorization: Bearer`. We verify: RS256 signature against
+GitHub's published keys (cached, one rate-limited refetch on an unknown key id), issuer, **audience = this service**, expiry, and
+that `repository` matches the repository being imported into, so a workflow can only ever import into its own repository.
+`alg: none`, HS256 "algorithm confusion", tampered payloads, wrong audience/issuer, expired and unknown-key tokens are all refused
+(unit and e2e tested, with a mock issuer that signs with a real key). CI can add reports; it cannot delete them.
+
+### Live testing: the boundary, as built (`ci.ts`)
+We do **not** run attack traffic from our servers. The app generates a GitHub Actions workflow (Settings of the security page >
+"Add live testing to your CI") that runs **Nuclei in your repository, on GitHub's runners, against a staging site you name**, then
+uploads the SARIF with the OIDC token. It is safe by default: manual or weekly only (never on pull requests, so no stranger can
+trigger it or obtain an identity token), refuses to run until `SECURITY_TEST_TARGET` is set to an https URL and
+`SECURITY_TEST_CONFIRM_OWNER` is `yes`, skips intrusive / fuzzing / brute-force / denial-of-service templates, is rate limited,
+disables out-of-band callbacks to third-party servers, and pins the scanner image by digest. Our own pipeline analyzer is run over
+the generated YAML in a test, so the workflow we hand out never trips our own rules. Nuclei downloads its community templates at
+run time (unpinned); pin them with `-t` if you need a fully reproducible run.
+
+### Not yet (S3)
+Passive checks (TLS, headers, cookie flags, exposed files) against a domain whose ownership we have verified; importing other
+formats (CycloneDX/SPDX SBOMs); webhooks so a GitHub alert shows up without a scan.
+
+## Roadmap
+S1, S2 and S3 are done (above). S4: passive external checks on a verified domain, AI explanations, OWASP/CWE compliance views.
+
+## Not yet (overall)
 Git history scanning (a secret removed from HEAD is not found), real taint tracking across functions and files (rules look at one
 call at a time), Java/Go/Ruby/Rust code rules, Rust/Java/Ruby dependency reachability, OSV rate-limit retry, scheduled re-scans, and a
 true server-side PDF (use the browser's Save as PDF).

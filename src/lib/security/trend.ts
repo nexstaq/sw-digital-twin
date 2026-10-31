@@ -32,6 +32,14 @@ export function withHistory(set: FindingSet, prev: FindingSet | null): FindingSe
   };
 }
 
+/** After findings were added to or removed from the current scan (an import), bring its trend point up to date. Same commit only. */
+export function refreshTrend(set: FindingSet): FindingSet {
+  const last = set.trend?.at(-1);
+  if (!set.trend || !last || last.sha !== set.sha) return set;
+  const p = posture(set.findings, true);
+  return { ...set, trend: [...set.trend.slice(0, -1), { ...last, score: p.score, total: p.total, counts: p.counts as Record<Severity, number> }] };
+}
+
 /** One sentence for the posture card and the report. */
 export function describeDelta(d: NonNullable<FindingSet["delta"]>): string {
   if (d.newIds.length === 0 && d.fixed === 0) return "No change since the previous scan.";

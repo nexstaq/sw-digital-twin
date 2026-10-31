@@ -4,7 +4,7 @@ export const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const
 export const SeveritySchema = z.enum(SEVERITIES);
 export type Severity = z.infer<typeof SeveritySchema>;
 
-export const CATEGORIES = ["dependency", "secret", "pipeline", "container", "code"] as const;
+export const CATEGORIES = ["dependency", "secret", "pipeline", "container", "code", "runtime"] as const;
 export const CategorySchema = z.enum(CATEGORIES);
 export type Category = z.infer<typeof CategorySchema>;
 
@@ -47,6 +47,14 @@ export const FindingSchema = z.object({
     vulns: z.array(Vuln).optional(),
     /** secrets: which kind, and a masked hint. Never the value. */
     secretKind: z.string().optional(), masked: z.string().optional(),
+    /** who reported it when it did not come from our own analyzers: "dependabot", "codeql", "secret-scanning", "sarif:nuclei"… */
+    source: z.string().optional(),
+    /** the tool's own display name for an imported report ("Nuclei", not "nuclei") */
+    sourceName: z.string().optional(),
+    /** other tools that independently reported the same thing (so it is one finding, with more evidence) */
+    alsoReportedBy: z.array(z.string()).optional(),
+    /** a link to where the reporting tool shows it (https only) */
+    url: z.string().optional(),
     /** other lines that share this finding (e.g. the same unpinned action used 3 times) */
     lines: z.array(z.number()).optional(),
   }).default({}),
@@ -70,6 +78,19 @@ export const FindingSetSchema = z.object({
   trend: z.array(z.object({ sha: z.string(), scannedAt: z.number(), score: z.number(), total: z.number(), counts: z.record(z.string(), z.number()) })).optional(),
   /** what changed since the scan before this one, judged by stable finding id */
   delta: z.object({ newIds: z.array(z.string()), fixed: z.number(), previousSha: z.string(), previousScannedAt: z.number() }).optional(),
+  /** where findings came from besides our own analyzers, and whether each source worked. Never an all-clear by omission. */
+  sources: z.record(z.string(), z.object({
+    status: z.enum(["ok", "unavailable"]),
+    /** display name, for imported reports */
+    label: z.string().optional(),
+    count: z.number(),
+    message: z.string().optional(),
+    importedAt: z.number().optional(),
+    /** how it got here: pulled from GitHub, uploaded by a person, or pushed by a CI workflow */
+    via: z.enum(["github", "upload", "ci"]).optional(),
+    /** CI provenance (workflow run that pushed it) */
+    by: z.object({ ref: z.string().optional(), workflow: z.string().optional(), runId: z.string().optional(), actor: z.string().optional() }).optional(),
+  })).optional(),
   /** what could not be checked (OSV unreachable, scan capped, …): never silently "all clear" */
   warnings: z.array(z.string()),
 });

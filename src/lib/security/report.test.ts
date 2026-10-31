@@ -42,6 +42,25 @@ describe("renderReportHtml", () => {
     expect(out).toContain("Since the previous scan: 1 new, 2 fixed.");
     expect(html).not.toContain("Since the previous scan");
   });
+  it("names the source of each finding, and lists every source including the ones that were unavailable", () => {
+    const out = renderReportHtml({ set: SET([
+      F("d", "high", { category: "dependency", detail: { source: "dependabot", alsoReportedBy: [], url: "https://github.com/acme/shop/security/dependabot/1" } }),
+      F("o", "high", { detail: { alsoReportedBy: ["dependabot"] } }),
+    ], { sources: { dependabot: { status: "ok", count: 3, via: "github" }, "code-scanning": { status: "unavailable", count: 0, message: "Code scanning is not switched on." }, "sarif:nuclei": { status: "ok", label: "Nuclei", count: 2, via: "ci" } } }), generatedAt: NOW });
+    expect(out).toContain("Reported by GitHub Dependabot.");
+    expect(out).toContain("Also confirmed by GitHub Dependabot.");
+    expect(out).toContain('<a href="https://github.com/acme/shop/security/dependabot/1">Open it there</a>');
+    expect(out).toContain("<b>GitHub Dependabot:</b> 3 findings included.");
+    expect(out).toContain("<b>Nuclei (imported report):</b> 2 findings included (sent by a CI workflow).");
+    expect(out).toContain("<b>GitHub code scanning:</b> <b>not available.</b>"); // the source is keyed \"code-scanning\", its findings \"codeql\": both read the same
+    expect(out).toContain("<b>not available.</b> Code scanning is not switched on.");
+  });
+  it("a live-test finding points at a URL, never at a made-up GitHub file link", () => {
+    const out = renderReportHtml({ set: SET([F("u", "medium", { category: "runtime", path: "https://staging.example.com/admin", line: undefined })]), generatedAt: NOW });
+    expect(out).toContain("<code>https://staging.example.com/admin</code>");
+    expect(out).not.toContain("github.com/acme/shop/blob/" + "a".repeat(40) + "/https");
+    expect(out).toContain("Live testing: 1");
+  });
   it("a clean scan says what that does and does not mean", () => {
     const clean = renderReportHtml({ set: SET([]), generatedAt: NOW });
     expect(clean).toContain("Nothing was found. That means these checks passed, not that the software is proven secure.");

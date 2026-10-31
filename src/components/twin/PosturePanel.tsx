@@ -7,6 +7,7 @@ import { describeDelta } from "@/lib/security/trend";
 import type { AttackPath } from "@/lib/security/paths";
 import { CATEGORIES, type Category, type Finding, type FindingSet } from "@/lib/security/types";
 import { CATEGORY_LABEL, FindingRow, GradeRing, SeverityBar, SeverityBadge, TrendLine } from "./securityUi";
+import { SecuritySources } from "./SecuritySources";
 
 /** The at-a-glance card: grade, severity mix, category filter that recolours the map, and the few things to fix first. */
 /** One way in: where an outsider can knock, what is reachable from there, and what is wrong on the way. */
@@ -31,9 +32,9 @@ function PathCard({ p, label, active, onShow }: { p: AttackPath; label: (id: str
   );
 }
 
-export function PosturePanel({ repo, set, filter, onFilter, visible, onOpen, onScan, scanning, scanError, paths, label, activePath, onShowPath }: {
+export function PosturePanel({ onImported, repo, set, filter, onFilter, visible, onOpen, onScan, scanning, scanError, paths, label, activePath, onShowPath }: {
   set: FindingSet | null; filter: Category | null; onFilter: (c: Category | null) => void; visible: Finding[];
-  onOpen: (f: Finding) => void; onScan: () => void; scanning: boolean; scanError: string | null; repo: string;
+  onOpen: (f: Finding) => void; onScan: () => void; scanning: boolean; scanError: string | null; repo: string; onImported: () => void;
   paths: AttackPath[]; label: (id: string) => string; activePath: string | null; onShowPath: (p: AttackPath) => void;
 }) {
   const [morePaths, setMorePaths] = useState(false);
@@ -67,6 +68,8 @@ export function PosturePanel({ repo, set, filter, onFilter, visible, onOpen, onS
         </div>
       )}
 
+      {filter === "runtime" && <p className="text-[11px] leading-snug text-ink-faint">Live-testing findings are about your running site, not a file in the repository, so they are listed here but do not colour the map.</p>}
+
       {top.length > 0 && (
         <section>
           <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-ink-faint">Fix first</h3>
@@ -99,6 +102,7 @@ export function PosturePanel({ repo, set, filter, onFilter, visible, onOpen, onS
           <a href={`/api/security/report?repo=${encodeURIComponent(repo)}&format=sarif&download=1`} className="text-ink-dim hover:text-ink" title="For GitHub code scanning and other tools">SARIF</a>
         </div>
       )}
+      {set && <SecuritySources repo={repo} set={set} onImported={onImported} />}
       <p className="text-[11px] leading-snug text-ink-faint">Tile colour is the worst finding inside it. The number is its safety score (100 = nothing found). Findings are visible to people with write access only.</p>
     </div>
   );

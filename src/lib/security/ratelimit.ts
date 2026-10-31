@@ -48,6 +48,7 @@ export const LIMITS = {
   verdict: { name: "verdict", max: 60, windowMs: 60_000 },
   secscan: { name: "secscan", max: 3, windowMs: 60_000 },
   snippet: { name: "snippet", max: 60, windowMs: 60_000 },
+  import: { name: "import", max: 10, windowMs: 60_000 },
   write: { name: "write", max: 30, windowMs: 60_000 },
 } satisfies Record<string, Limit>;
 

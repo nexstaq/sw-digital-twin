@@ -3,6 +3,8 @@ import { cloneRepo, gitHead, parseRepo } from "@/lib/ingest/repo";
 import { persist } from "@/lib/persist";
 import { denyBots } from "@/lib/security/bot";
 import { LIMITS, rateLimit, tooMany } from "@/lib/security/ratelimit";
+import { combine } from "@/lib/security/external";
+import { fetchGithubAlerts } from "@/lib/security/github-alerts";
 import { analyzeDirectory } from "@/lib/security/scan";
 import { withHistory } from "@/lib/security/trend";
 
@@ -39,7 +41,11 @@ export async function POST(req: Request) {
     const latest = (await store.listSnapshots(repo)).at(-1);
     const map = latest && (await store.getSnapshot(repo, latest.sha));
     const endpointFiles = map ? [...new Set(map.graph.nodes.filter((n) => n.kind === "endpoint").flatMap((n) => n.evidence.map((e) => e.path)))] : [];
-    const set = withHistory(await analyzeDirectory(checkout.dir, repo, sha, {}, { endpointFiles }), await store.getFindings(repo));
+    const previous = await store.getFindings(repo);
+    const fresh = await analyzeDirectory(checkout.dir, repo, sha, {}, { endpointFiles });
+    // GitHub's own alerts (Dependabot, code scanning, secret scanning), each reporting whether it worked; reports imported from CI are kept
+    const alerts = await fetchGithubAlerts(repo, a.token, fresh.findings);
+    const set = withHistory(combine(fresh, previous, alerts), previous);
     await store.putFindings(repo, set);
     return withSetCookie(Response.json(set, { headers: NO_STORE }), a.setCookie);
   } catch (e) {

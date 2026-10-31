@@ -2,6 +2,7 @@
 //   acme/shop  public;  its default branch has a FAILING "test" job.
 //   acme/vault private; visible only to the signed-in test user (token tok-alice), who can push.
 import { execFileSync } from "node:child_process";
+import { createSign, generateKeyPairSync } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtempSync, cpSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,6 +22,28 @@ const git = (...a) => execFileSync("git", ["-C", work, "-c", "user.email=t@t", "
 git("init", "-q", "-b", "main"); git("add", "-A"); git("commit", "-qm", "init");
 const SHA = git("rev-parse", "HEAD").trim();
 const tarball = execFileSync("git", ["-C", work, "archive", "--format=tar.gz", `--prefix=acme-${SHA.slice(0, 7)}/`, "HEAD"], { maxBuffer: 1 << 26 });
+
+// ---- a stand-in for GitHub Actions' OIDC issuer: a real RSA key, a JWKS document, and a helper that mints signed tokens
+const oidc = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const oidcJwk = { ...oidc.publicKey.export({ format: "jwk" }), kid: "mock-key", alg: "RS256", use: "sig" };
+const b64u = (o) => Buffer.from(typeof o === "string" ? o : JSON.stringify(o)).toString("base64url");
+const mint = ({ repo, aud, expIn = 300, kid = "mock-key" }) => {
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64u({ alg: "RS256", typ: "JWT", kid });
+  const body = b64u({ iss: `http://localhost:${PORT}`, aud, repository: repo, repository_owner: repo.split("/")[0], sha: SHA, ref: "refs/heads/main", workflow: "Live security test", run_id: "9001", event_name: "workflow_dispatch", actor: "alice", iat: now, nbf: now - 5, exp: now + expIn });
+  return `${head}.${body}.${createSign("RSA-SHA256").update(`${head}.${body}`).sign(oidc.privateKey).toString("base64url")}`;
+};
+
+// ---- security alerts. acme/vault: Dependabot has two, code scanning needs Advanced Security, secret scanning has one (and, like the
+// real API, returns the secret VALUE, which the app must never keep). acme/shop (public): the App lacks permission for all three.
+const SECRET_VALUE = "AK" + "IA" + "IOSFODNN7" + "EXAMPLE";
+const dependabot = [
+  { number: 1, state: "open", html_url: "https://github.com/acme/vault/security/dependabot/1", dependency: { package: { ecosystem: "npm", name: "lodash" }, manifest_path: "package.json", scope: "runtime", relationship: "direct" },
+    security_advisory: { ghsa_id: "GHSA-p6mc-m468-83gw", cve_id: "CVE-2020-8203", summary: "Prototype Pollution in lodash", severity: "high", cvss: { score: 7.4 }, cwes: [{ cwe_id: "CWE-1321" }] }, security_vulnerability: { package: { ecosystem: "npm", name: "lodash" }, severity: "high", first_patched_version: { identifier: "4.17.19" } } },
+  { number: 2, state: "open", html_url: "https://github.com/acme/vault/security/dependabot/2", dependency: { package: { ecosystem: "npm", name: "left-pad" }, manifest_path: "package.json", scope: "runtime", relationship: "direct" },
+    security_advisory: { ghsa_id: "GHSA-leftpad-0001", summary: "left-pad pads too eagerly", severity: "low" }, security_vulnerability: { package: { ecosystem: "npm", name: "left-pad" }, severity: "low", first_patched_version: { identifier: "1.3.1" } } },
+];
+const secretAlerts = [{ number: 3, state: "open", secret_type: "aws_access_key_id", secret_type_display_name: "AWS Access Key ID", secret: SECRET_VALUE, html_url: "https://github.com/acme/vault/security/secret-scanning/3" }];
 
 const REPOS = { "acme/shop": { private: false }, "acme/vault": { private: true } };
 const authed = (req) => req.headers.authorization === `Bearer ${TOKEN}`;
@@ -86,6 +109,19 @@ createServer((req, res) => {
     const file = path.join(work, decodeURIComponent(m[2]));
     if (!file.startsWith(work + path.sep) || !existsSync(file)) return json(res, 404, { message: "Not Found" });
     res.writeHead(200, { "content-type": "text/plain" }); return res.end(readFileSync(file));
+  }
+  if (p === "/.well-known/jwks") return json(res, 200, { keys: [oidcJwk] });
+  if (p === "/__oidc/token") { // test helper: mints a token the way GitHub Actions would
+    const q = url.searchParams;
+    return json(res, 200, { value: mint({ repo: q.get("repo"), aud: q.get("aud"), expIn: Number(q.get("expIn") ?? 300), kid: q.get("kid") ?? "mock-key" }) });
+  }
+  if ((m = /^\/repos\/(acme\/[\w-]+)\/(dependabot|code-scanning|secret-scanning)\/alerts(?:\/(\d+)\/locations)?$/.exec(p))) {
+    const [, name, kind, n] = m;
+    if (!visible(name, req)) return json(res, 404, { message: "Not Found" });
+    if (name !== "acme/vault") return json(res, 403, { message: "Resource not accessible by integration" });
+    if (kind === "dependabot") return json(res, 200, dependabot);
+    if (kind === "code-scanning") return json(res, 403, { message: "Advanced Security must be enabled for this repository to use code scanning." });
+    return n ? json(res, 200, [{ type: "commit", details: { path: "src/config.ts", start_line: 2, blob_sha: "x" } }]) : json(res, 200, secretAlerts);
   }
   if (p === "/__health") return json(res, 200, { ok: true, sha: SHA });
   json(res, 404, { message: `mock has no ${p}` });

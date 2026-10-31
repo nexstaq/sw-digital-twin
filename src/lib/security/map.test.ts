@@ -51,6 +51,13 @@ describe("nodeFor: who owns a file", () => {
   });
 });
 
+describe("nodeFor: findings that are not files in the repository", () => {
+  it("a live-test URL or an unknown location never maps to a node", () => {
+    expect(nodeFor(GRAPH, { path: "https://staging.example.com/api/users" })).toBeNull();
+    expect(nodeFor(GRAPH, { path: "(location not provided by GitHub)" })).toBeNull();
+  });
+});
+
 describe("rollup", () => {
   it("counts a finding on the node and on every ancestor, so a block glows for what is inside it", () => {
     const fs = [F("1", ".github/workflows/ci.yml", "high"), F("2", "apps/web/a.ts", "low")];

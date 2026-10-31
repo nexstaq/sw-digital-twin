@@ -15,6 +15,7 @@ const MANIFEST = /(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|requir
  *  3. Otherwise any node whose cited file is in an enclosing folder.
  */
 export function nodeFor(graph: TwinGraph, f: Pick<Finding, "path">): string | null {
+  if (/^https?:\/\//.test(f.path) || f.path.startsWith("(")) return null; // a live-test URL, or "location not provided": not a file in the repository
   const fileDir = dirOf(f.path);
   const deepest = (a: TwinNode | null, n: TwinNode) => (!a || n.level > a.level ? n : a);
   let exact: TwinNode | null = null, exactOwner: TwinNode | null = null;
@@ -83,7 +84,7 @@ export interface Posture {
 
 export function posture(findings: Finding[], scanned = true): Posture {
   const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0])) as Record<Severity, number>;
-  const byCategory: Record<Category, number> = { dependency: 0, secret: 0, pipeline: 0, container: 0, code: 0 };
+  const byCategory: Record<Category, number> = { dependency: 0, secret: 0, pipeline: 0, container: 0, code: 0, runtime: 0 };
   let penalty = 0;
   for (const f of findings) { counts[f.severity]++; byCategory[f.category]++; penalty += priority(f); }
   const score = Math.max(0, Math.round(100 - Math.min(100, penalty)));
