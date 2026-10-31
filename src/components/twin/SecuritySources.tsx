@@ -5,6 +5,7 @@ import { Check, Copy, FileUp, TriangleAlert } from "lucide-react";
 import { ciWorkflow } from "@/lib/security/ci";
 import { MAX_SARIF_BYTES } from "@/lib/security/sarif-import";
 import type { FindingSet } from "@/lib/security/types";
+import { PassiveChecks } from "./PassiveChecks";
 import { sourceLabel } from "./securityUi";
 
 const when = (t?: number) => (t ? new Date(t).toLocaleString() : "");
@@ -54,7 +55,7 @@ export function SecuritySources({ repo, set, onImported }: { repo: string; set: 
           <li key={name} className="flex items-start gap-1.5" data-source={name}>
             {s.status === "ok" ? <Check size={12} className="mt-0.5 shrink-0 text-nominal" aria-hidden /> : <TriangleAlert size={12} className="mt-0.5 shrink-0 text-degraded" aria-hidden />}
             <span className="min-w-0 text-ink-dim">
-              {sourceLabel(name, s.label)} <span className="text-ink-faint">· {s.status === "ok" ? `${s.count} finding${s.count === 1 ? "" : "s"}` : "unavailable"}{s.via === "ci" ? " · from CI" : s.via === "upload" ? " · uploaded" : ""}{s.importedAt && name.startsWith("sarif:") ? ` · ${when(s.importedAt)}` : ""}</span>
+              {sourceLabel(name, s.label)} <span className="text-ink-faint">· {s.status === "ok" ? `${s.count} finding${s.count === 1 ? "" : "s"}` : "unavailable"}{s.via === "ci" ? " · from CI" : s.via === "upload" ? " · uploaded" : s.via === "check" ? " · live check" : ""}{s.importedAt && name.startsWith("sarif:") ? ` · ${when(s.importedAt)}` : ""}</span>
               {s.message && <span className={`block leading-snug ${s.status === "ok" ? "text-ink-faint" : "text-degraded"}`}>{s.message}</span>}
               {name.startsWith("sarif:") && <button onClick={() => void remove(name)} aria-label={`Remove ${sourceLabel(name, s.label)}`} className="mt-0.5 block text-ink-faint underline-offset-2 hover:text-failing hover:underline">Remove</button>}
               {s.by?.workflow && <span className="block text-ink-faint">workflow “{s.by.workflow}”{s.by.ref ? `, ${s.by.ref.replace("refs/heads/", "")}` : ""}{s.by.actor ? `, started by ${s.by.actor}` : ""}</span>}
@@ -72,6 +73,8 @@ export function SecuritySources({ repo, set, onImported }: { repo: string; set: 
       </div>
       <p className="mt-1.5 text-[10.5px] leading-snug text-ink-faint">Reports from Semgrep, CodeQL, Trivy, ZAP, Nuclei, gitleaks and other tools that write SARIF can be imported. A new report from the same tool replaces its previous one.</p>
       {msg && <p role={msg.ok ? "status" : "alert"} className={`mt-1.5 text-[11px] leading-snug ${msg.ok ? "text-nominal" : "text-failing"}`}>{msg.text}</p>}
+
+      <PassiveChecks repo={repo} onChanged={onImported} />
 
       {showCi && (
         <div className="mt-3 space-y-2 text-[11px] leading-snug text-ink-dim" aria-label="Live testing in your CI">

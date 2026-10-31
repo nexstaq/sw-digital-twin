@@ -53,6 +53,16 @@ token to `fetch`/XHR only, so the scan page streams with `fetch` (`src/lib/sse.t
 - Basic mode is free. "Deep Analysis" is an optional dashboard toggle (Project → Firewall → Configure).
 - `RATE_LIMIT_SCALE` multiplies every rate limit (default 1; the e2e suite uses 5).
 
+## Outbound requests: passive checks (S4)
+The one place the server fetches a user-supplied hostname is `src/lib/security/passive/`. Ownership (DNS TXT or well-known file) is
+re-proved on every run; only public addresses are contacted (all DNS answers validated, the validated address is the one connected to);
+standard ports, no redirects off the host, size and time caps, a cooldown and a per-repo cap. Response bodies are not stored. Full model:
+`docs/SECURITY-ANALYSIS.md`.
+
+## AI explanations (S4)
+Findings text is untrusted input to the model; no source code and no secret value is ever sent; private repositories never use a
+free-tier model; answers citing an id or version not in the facts are discarded.
+
 ## Tests
 - `npx vitest run`: unit tests. Set `TEST_DATABASE_URL` (a Neon connection string) to also run the Postgres adapter tests.
 - `npm run e2e`: Playwright against a production build (built into `.next-e2e`, so it never collides with `next dev`) and a mock

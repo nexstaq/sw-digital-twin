@@ -8,6 +8,7 @@ import type { AttackPath } from "@/lib/security/paths";
 import { CATEGORIES, type Category, type Finding, type FindingSet } from "@/lib/security/types";
 import { CATEGORY_LABEL, FindingRow, GradeRing, SeverityBar, SeverityBadge, TrendLine } from "./securityUi";
 import { SecuritySources } from "./SecuritySources";
+import { StandardsPanel } from "./StandardsPanel";
 
 /** The at-a-glance card: grade, severity mix, category filter that recolours the map, and the few things to fix first. */
 /** One way in: where an outsider can knock, what is reachable from there, and what is wrong on the way. */
@@ -102,6 +103,7 @@ export function PosturePanel({ onImported, repo, set, filter, onFilter, visible,
           <a href={`/api/security/report?repo=${encodeURIComponent(repo)}&format=sarif&download=1`} className="text-ink-dim hover:text-ink" title="For GitHub code scanning and other tools">SARIF</a>
         </div>
       )}
+      {set && <StandardsPanel findings={set.findings} onOpen={onOpen} newIds={newIds} />}
       {set && <SecuritySources repo={repo} set={set} onImported={onImported} />}
       <p className="text-[11px] leading-snug text-ink-faint">Tile colour is the worst finding inside it. The number is its safety score (100 = nothing found). Findings are visible to people with write access only.</p>
     </div>

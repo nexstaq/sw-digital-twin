@@ -2,6 +2,7 @@ import type { TwinGraph } from "@/lib/graph/types";
 import { mapFindings, posture, priority } from "./map";
 import { attackPaths } from "./paths";
 import { describeDelta } from "./trend";
+import { cweSummary, owaspSummary } from "./owasp";
 import { CATEGORIES, SEVERITIES, type Finding, type FindingSet, type Severity } from "./types";
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -13,7 +14,7 @@ const SEV_NAME: Record<Severity, string> = { critical: "Critical", high: "High",
 const SEV_COLOR: Record<Severity, string> = { critical: "#b4161b", high: "#d1242f", medium: "#9a6700", low: "#57606a", info: "#8c959f" };
 
 const isFile = (p: string) => !/^https?:\/\//.test(p) && !p.startsWith("(");
-const SOURCE_NAME = (s: string, name?: string) => (s === "dependabot" ? "GitHub Dependabot" : s === "codeql" || s === "code-scanning" ? "GitHub code scanning" : s === "secret-scanning" ? "GitHub secret scanning" : s.startsWith("sarif:") ? `${name || s.slice(6)} (imported report)` : s);
+const SOURCE_NAME = (s: string, name?: string) => (s === "dependabot" ? "GitHub Dependabot" : s === "codeql" || s === "code-scanning" ? "GitHub code scanning" : s === "secret-scanning" ? "GitHub secret scanning" : s.startsWith("sarif:") ? `${name || s.slice(6)} (imported report)` : s.startsWith("passive:") ? `Live check of ${name || s.slice(8)}` : s);
 
 const blob = (repo: string, sha: string, path: string, line?: number) => `https://github.com/${repo}/blob/${sha}/${path.split("/").map(encodeURIComponent).join("/")}${line ? `#L${line}` : ""}`;
 
@@ -78,6 +79,14 @@ ${paths.length ? `<h3>How an attacker could get in</h3><p class="muted">Routes f
     ? `<h2>Findings in detail</h2>${bySev.map(([s, list]) => `<h3>${esc(SEV_NAME[s])} (${list.length})</h3>${list.map((f) => findingHtml(f, set.repo, set.sha)).join("")}`).join("")}`
     : `<h2>Findings in detail</h2><p>Nothing was found. That means these checks passed, not that the software is proven secure.</p>`;
 
+  const { rows: owaspRows, unmapped } = owaspSummary(set.findings);
+  const cwes = cweSummary(set.findings, 10);
+  const standards = `<h2>Standards mapping</h2>
+<p class="muted">Findings grouped by OWASP Top 10 (2021). Categories a scan of a repository cannot judge are marked <b>not assessed</b>; that does not mean they are fine.</p>
+<table><thead><tr><th>Category</th><th>Findings</th><th>Worst</th><th>How it is checked here</th></tr></thead><tbody>${owaspRows.map((r) => `<tr><td><b>${esc(r.id)}</b> ${esc(r.name)}</td><td>${r.assessed ? r.total : "n/a"}</td><td>${!r.assessed ? "not assessed" : r.worst ? `<b style="color:${SEV_COLOR[r.worst]}">${esc(SEV_NAME[r.worst])}</b>` : "none found"}</td><td class="muted">${esc(r.how)}</td></tr>`).join("")}</tbody></table>
+${unmapped ? `<p class="muted">${unmapped} finding${unmapped === 1 ? " has" : "s have"} no OWASP category.</p>` : ""}
+${cwes.length ? `<p><b>Most common weaknesses:</b> ${cwes.map((c) => `${esc(c.cwe)} (${c.count})`).join(", ")}</p>` : ""}`;
+
   const warnings = set.warnings.length ? `<div class="note"><b>Not everything could be checked:</b><ul>${set.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : "";
 
   const method = `<h2>What was checked, and what was not</h2>
@@ -86,10 +95,10 @@ ${paths.length ? `<h3>How an attacker could get in</h3><p class="muted">Routes f
 <li><b>Secrets:</b> ${set.stats.files} files were searched for keys, tokens and credentials. Values are never stored or shown.</li>
 <li><b>CI pipelines and containers:</b> GitHub Actions workflows, Dockerfiles and compose files were checked for risky settings.</li>
 <li><b>Source code:</b> JavaScript, TypeScript and Python were parsed and checked for injection, unsafe execution, weak cryptography and disabled security controls.</li>
-${Object.entries(set.sources ?? {}).map(([name, s]) => `<li><b>${esc(SOURCE_NAME(name, s.label))}:</b> ${s.status === "ok" ? `${s.count} finding${s.count === 1 ? "" : "s"} included${s.via === "ci" ? " (sent by a CI workflow)" : s.via === "upload" ? " (uploaded)" : ""}.` : `<b>not available.</b>`}${s.message ? ` ${esc(s.message)}` : ""}</li>`).join("")}</ul>
+${Object.entries(set.sources ?? {}).map(([name, s]) => `<li><b>${esc(SOURCE_NAME(name, s.label))}:</b> ${s.status === "ok" ? `${s.count} finding${s.count === 1 ? "" : "s"} included${s.via === "ci" ? " (sent by a CI workflow)" : s.via === "upload" ? " (uploaded)" : s.via === "check" ? " (checked directly)" : ""}.` : `<b>not available.</b>`}${s.message ? ` ${esc(s.message)}` : ""}</li>`).join("")}</ul>
 <p class="muted"><b>Limits.</b> These are automated, best-effort checks. They can report things that are not real problems, and they can miss real ones. They do not test a running system, do not look through git history for secrets that were removed, and cannot prove software is secure. Code excerpts are not stored; open a finding's link to see the lines. Findings marked "low confidence" are the most likely to be false alarms.</p>`;
 
-  return `${head}${summary}${warnings}${detail}${method}<p class="muted">Generated by Mission Control for Code.</p></body></html>`;
+  return `${head}${summary}${warnings}${standards}${detail}${method}<p class="muted">Generated by Mission Control for Code.</p></body></html>`;
 }
 
 // ---------- SARIF 2.1.0 ----------

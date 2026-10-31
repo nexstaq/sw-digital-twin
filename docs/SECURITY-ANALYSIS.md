@@ -1,4 +1,4 @@
-# Security analysis (S1, S2 and S3)
+# Security analysis (S1 to S4)
 
 A security view of the same map. Open **Security** from the health map (maintainers only), run a scan, and see which parts of the
 system carry which risks, down to the file and line.
@@ -117,12 +117,51 @@ disables out-of-band callbacks to third-party servers, and pins the scanner imag
 the generated YAML in a test, so the workflow we hand out never trips our own rules. Nuclei downloads its community templates at
 run time (unpinned); pin them with `-t` if you need a fully reproducible run.
 
+## S4: standards, AI explanations, passive checks on a verified domain
+
+### Standards views (`owasp.ts`)
+Findings are grouped by **OWASP Top 10 (2021)** and by **CWE**, in the panel and in the report. Built-in analyzers tag their own OWASP
+category; imported findings (SARIF, GitHub alerts) are mapped from their CWE using OWASP's published lists. All ten categories are always
+shown. **A04 Insecure Design and A09 Logging and Monitoring are marked "not assessed"**: a scan of a repository cannot judge them, and
+showing them green would be a lie. "None found" and "not assessed" are different statements and look different.
+
+### AI explanations (`explain.ts`, `POST /api/security/explain`)
+"Explain this in plain English" writes a summary, how it could be abused here, ordered fix steps and a rough effort, from the finding's
+own facts: never source code, never a secret's value. Safeguards: repository-derived and advisory text is **untrusted data** (quoted
+inside JSON under a system prompt that says so); a private repository **never** uses a free-tier model (gateway only); the answer is
+schema-validated; links and markup are stripped; and **any CVE/GHSA/CWE id or version number in the answer must appear in the facts we
+gave it, or the whole answer is discarded**, which stops invented advisories and invented "upgrade to 9.9.9" advice. Results are cached
+per finding and model. With no key it says so and the written reason and fix remain. Maintainers only, rate limited, bot-checked.
+
+### Passive checks on a verified domain (`passive/`)
+About 25 ordinary requests to a domain a maintainer registers: the home page (redirects on that exact host only), the TLS certificate
+(trust, expiry, key, protocol), plain HTTP, security headers (HSTS, CSP, nosniff, framing, version disclosure), cookies (Secure,
+HttpOnly, SameSite), CORS reflection, OPTIONS/TRACE, a dozen well-known file paths, and SPF/DMARC when the domain receives mail.
+**No attacks, no logins, no guessing, no fuzzing.**
+
+The safety model, because a server that fetches user-typed hostnames is an SSRF risk and an abuse risk:
+- **Ownership first, every time.** A random token must be in a DNS TXT record (`_mission-control-verify.<domain>`) or at
+  `/.well-known/mission-control-verify.txt` on that exact host. It is re-proved at the start of **every** run, so a domain that changed
+  hands cannot be tested by its previous claimant. Nothing is sent to an unproven domain (e2e-tested by counting requests the target receives).
+- **Public addresses only.** We resolve the name ourselves; if **any** returned address is private, loopback, link-local, cloud-metadata,
+  carrier-grade, multicast or reserved (including IPv4-in-IPv6 and transition forms), the host is refused. The connection uses the address
+  we validated, so DNS cannot change its answer afterwards (rebinding).
+- **Bounded.** Standard ports, no IP literals or credentials in URLs, no redirects off the host, no compression, 8 s timeouts, 8 KB caps,
+  a pause between requests, at most 5 domains per repository, one run per domain per 5 minutes, a fixed User-Agent that says who we are.
+- **Nothing sensitive kept.** Exposed files are detected by a content *signature* (so a single-page app that answers 200 to every path is
+  not reported) and the content is discarded. Only "this file is readable" is recorded, never what is in it. Cookie values are never kept.
+Validated against the real network on a real site (`sw-digital-twin.nexstaq.com`): 23 requests in 4.5 s, one accurate finding.
+
+### Not yet (S4)
+Scheduled passive checks; subdomain discovery; deeper TLS probing (legacy protocol and cipher enumeration); checking a site behind
+authentication; AI that sees code (deliberately off: sending source to a model is a separate decision).
+
 ### Not yet (S3)
 Passive checks (TLS, headers, cookie flags, exposed files) against a domain whose ownership we have verified; importing other
 formats (CycloneDX/SPDX SBOMs); webhooks so a GitHub alert shows up without a scan.
 
 ## Roadmap
-S1, S2 and S3 are done (above). S4: passive external checks on a verified domain, AI explanations, OWASP/CWE compliance views.
+S1 to S4 are done (above).
 
 ## Not yet (overall)
 Git history scanning (a secret removed from HEAD is not found), real taint tracking across functions and files (rules look at one

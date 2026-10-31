@@ -2,7 +2,7 @@ import type { Alerts } from "./github-alerts";
 import { byPriority } from "./map";
 import type { FindingSet } from "./types";
 
-const isImport = (source: string | undefined) => !!source && source.startsWith("sarif:");
+const isImport = (source: string | undefined) => !!source && (source.startsWith("sarif:") || source.startsWith("passive:"));
 
 /**
  * A fresh scan only re-runs OUR analyzers, so it must not lose what other tools told us. This keeps the reports CI or a person

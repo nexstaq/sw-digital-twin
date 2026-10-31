@@ -33,6 +33,8 @@ export default defineConfig({
         GITHUB_WEB_URL: `http://localhost:${MOCK}`,
         OSV_API_URL: `http://localhost:${MOCK}`,
         GITHUB_ACTIONS_OIDC_ISSUER: `http://localhost:${MOCK}`, // the mock signs CI tokens with a real key and serves its JWKS
+        PASSIVE_CHECK_FIXTURE_URL: `http://localhost:${MOCK}`, // the passive checks talk to a pretend internet, never a real one
+        PASSIVE_CHECK_COOLDOWN_MS: "2500",
         GITHUB_APP_CLIENT_ID: "e2e-client",
         GITHUB_APP_CLIENT_SECRET: "e2e-secret",
         GITHUB_APP_SLUG: "e2e-app",

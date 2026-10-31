@@ -39,6 +39,16 @@ const contract = (name: string, make: () => Persist) => describe(`${name} adapte
     expect((await p.getFindings("acme/shop"))!.scannedAt).toBe(2);
     expect(await p.getFindings("other/repo")).toBeNull();
   });
+  it("stores the domains to test per repo (case-insensitive), replacing the list wholesale", async () => {
+    const p = make();
+    expect(await p.getDomains("acme/shop")).toEqual([]);
+    const d = { domain: "staging.example.com", token: "mc-verify-" + "a".repeat(32), createdAt: 1, verifiedAt: 2, verifiedVia: "dns" as const };
+    await p.putDomains("Acme/Shop", [d]);
+    expect(await p.getDomains("acme/shop")).toEqual([d]);
+    await p.putDomains("acme/shop", [{ ...d, lastCheckAt: 3, lastCheckCount: 7 }, { domain: "b.example.com", token: "t", createdAt: 4 }]);
+    expect((await p.getDomains("acme/shop")).map((x) => x.domain)).toEqual(["staging.example.com", "b.example.com"]);
+    expect(await p.getDomains("other/repo")).toEqual([]);
+  });
   it("stores overrides per repo (case-insensitive) and replaces them wholesale", async () => {
     const p = make();
     expect(await p.getOverrides("acme/shop")).toEqual({});

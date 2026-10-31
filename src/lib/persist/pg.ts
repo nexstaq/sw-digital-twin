@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
-import type { FindingSet } from "@/lib/security/types";
+import type { DomainEntry, FindingSet } from "@/lib/security/types";
 import type { Share } from "@/lib/share/token";
 import { mergeBuckets } from "./memory";
 import { RETENTION_MS, type Persist, type Snapshot, type SnapshotMeta } from "./types";
@@ -31,6 +31,7 @@ export function ddl(schema: string): string[] {
        repo text NOT NULL, sha text NOT NULL, committed_at text, created_at bigint NOT NULL, graph jsonb NOT NULL,
        PRIMARY KEY (repo, sha))`,
     `CREATE TABLE IF NOT EXISTS ${s}.mappings (repo text PRIMARY KEY, mappings jsonb NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ${s}.domains (repo text PRIMARY KEY, data jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.findings (repo text PRIMARY KEY, data jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.overrides (repo text PRIMARY KEY, overrides jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.shares (
@@ -58,6 +59,15 @@ export function pgPersist(sql: Sql, schema = "twin"): Persist {
   const k = (repo: string) => repo.toLowerCase();
 
   return {
+    async getDomains(repo) {
+      await init();
+      const r = await sql(`SELECT data FROM ${t("domains")} WHERE repo = $1`, [k(repo)]);
+      return (r[0]?.data as DomainEntry[] | undefined) ?? [];
+    },
+    async putDomains(repo, d) {
+      await init();
+      await sql(`INSERT INTO ${t("domains")} (repo, data) VALUES ($1, $2::jsonb) ON CONFLICT (repo) DO UPDATE SET data = EXCLUDED.data`, [k(repo), JSON.stringify(d)]);
+    },
     async getFindings(repo) {
       await init();
       const r = await sql(`SELECT data FROM ${t("findings")} WHERE repo = $1`, [k(repo)]);

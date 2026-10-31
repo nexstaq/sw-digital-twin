@@ -90,6 +90,7 @@ export function sourceLabel(source: string | undefined, name?: string): string |
   if (source === "codeql" || source === "code-scanning") return "GitHub code scanning";
   if (source === "secret-scanning") return "GitHub secret scanning";
   if (source.startsWith("sarif:")) return `${name || source.slice(6)} (imported report)`;
+  if (source.startsWith("passive:")) return `Live check of ${name || source.slice(8)}`;
   return source;
 }
 /** Findings from live testing point at a URL, not a file: there is no GitHub file or code excerpt to show for them. */

@@ -87,7 +87,7 @@ export const FindingSetSchema = z.object({
     message: z.string().optional(),
     importedAt: z.number().optional(),
     /** how it got here: pulled from GitHub, uploaded by a person, or pushed by a CI workflow */
-    via: z.enum(["github", "upload", "ci"]).optional(),
+    via: z.enum(["github", "upload", "ci", "check"]).optional(),
     /** CI provenance (workflow run that pushed it) */
     by: z.object({ ref: z.string().optional(), workflow: z.string().optional(), runId: z.string().optional(), actor: z.string().optional() }).optional(),
   })).optional(),
@@ -95,6 +95,18 @@ export const FindingSetSchema = z.object({
   warnings: z.array(z.string()),
 });
 export type FindingSet = z.infer<typeof FindingSetSchema>;
+
+/** A domain a repository's maintainers asked us to test, and the proof of ownership state. The token is public by design (it sits in DNS). */
+export const DomainEntrySchema = z.object({
+  domain: z.string(),
+  token: z.string(),
+  createdAt: z.number(),
+  verifiedAt: z.number().optional(),
+  verifiedVia: z.enum(["dns", "file"]).optional(),
+  lastCheckAt: z.number().optional(),
+  lastCheckCount: z.number().optional(),
+});
+export type DomainEntry = z.infer<typeof DomainEntrySchema>;
 
 export interface SecurityContext {
   repo: string;

@@ -61,6 +61,16 @@ describe("renderReportHtml", () => {
     expect(out).not.toContain("github.com/acme/shop/blob/" + "a".repeat(40) + "/https");
     expect(out).toContain("Live testing: 1");
   });
+  it("maps findings to the OWASP Top 10 and says which categories it cannot assess", () => {
+    const out = renderReportHtml({ set: SET([F("a", "high", { owasp: "A03:2021 Injection" }), F("b", "low", { cwe: ["CWE-327"], owasp: undefined })]), generatedAt: NOW });
+    expect(out).toContain("<h2>Standards mapping</h2>");
+    expect(out).toMatch(/<b>A03<\/b> Injection<\/td><td>1<\/td>/);
+    expect(out).toMatch(/<b>A02<\/b> Cryptographic Failures<\/td><td>1<\/td>/); // derived from CWE-327
+    expect(out).toMatch(/<b>A04<\/b> Insecure Design<\/td><td>n\/a<\/td><td>not assessed<\/td>/);
+    expect(out).toMatch(/<b>A09<\/b> Security Logging[^<]*<\/td><td>n\/a<\/td><td>not assessed<\/td>/);
+    expect(out).toMatch(/<b>A01<\/b> Broken Access Control<\/td><td>0<\/td><td>none found<\/td>/);
+    expect(out).toContain("CWE-327 (1)");
+  });
   it("a clean scan says what that does and does not mean", () => {
     const clean = renderReportHtml({ set: SET([]), generatedAt: NOW });
     expect(clean).toContain("Nothing was found. That means these checks passed, not that the software is proven secure.");

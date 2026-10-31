@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, Locate, X } from "lucide-react";
+import { ExternalLink, Loader2, Locate, Sparkles, X } from "lucide-react";
 import type { Finding } from "@/lib/security/types";
 import { CATEGORY_LABEL, SeverityBadge, isRepoFile, sourceLabel, where } from "./securityUi";
 
+type Explained = { id: string; state: "loading" } | { id: string; state: "ok"; e: { summary: string; attack: string; steps: string[]; effort: string; model: string } } | { id: string; state: "off"; message: string };
 interface Snippet { sha: string; highlight: number; lines: { n: number; text: string }[]; redacted?: string }
 
 /** The deep dive: where it is, why it matters, how to fix it, and the actual lines (fetched now, never stored). */
 export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { finding: Finding; repo: string; sha: string; onClose: () => void; onLocate: () => void }) {
   const [snip, setSnip] = useState<{ id: string; data?: Snippet; error?: string } | null>(null);
+  const [ai, setAi] = useState<Explained | null>(null);
   const line = f.line;
 
   useEffect(() => {
@@ -23,6 +25,15 @@ export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { fin
   }, [repo, f.id, f.path, line]);
 
   const mine = snip?.id === f.id ? snip : null; // never flash the previous finding's code
+  const explained = ai?.id === f.id ? ai : null;
+  const explain = async () => {
+    setAi({ id: f.id, state: "loading" });
+    try {
+      const r = await fetch("/api/security/explain", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ repo, findingId: f.id }) });
+      const d = (await r.json()) as { ok?: boolean; explanation?: { summary: string; attack: string; steps: string[]; effort: string; model: string }; message?: string; error?: string };
+      setAi(d.ok && d.explanation ? { id: f.id, state: "ok", e: d.explanation } : { id: f.id, state: "off", message: d.message ?? d.error ?? "Could not explain this." });
+    } catch { setAi({ id: f.id, state: "off", message: "Could not reach the explanation service." }); }
+  };
   const d = f.detail;
   const file = isRepoFile(f.path);
   const gh = `https://github.com/${repo}/blob/${sha}/${f.path.split("/").map(encodeURIComponent).join("/")}${line ? `#L${line}` : ""}`;
@@ -80,6 +91,26 @@ export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { fin
               )}
           </section>
         )}
+
+        <section aria-label="AI explanation">
+          {!explained ? (
+            <button onClick={() => void explain()} className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20"><Sparkles size={13} aria-hidden /> Explain this in plain English</button>
+          ) : explained.state === "loading" ? (
+            <p className="flex items-center gap-1.5 text-xs text-ink-dim" role="status"><Loader2 size={13} className="animate-spin" aria-hidden /> Writing an explanation…</p>
+          ) : explained.state === "off" ? (
+            <p role="alert" className="rounded-lg bg-degraded/10 px-3 py-2 text-xs leading-relaxed text-degraded">{explained.message}</p>
+          ) : (
+            <div className="space-y-3 rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm">
+              <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink-faint"><Sparkles size={11} aria-hidden /> AI-written ({explained.e.model}) from this finding&apos;s facts. It has not read your code. Check before acting.</p>
+              <p className="leading-relaxed text-ink">{explained.e.summary}</p>
+              <div><h4 className="text-[11px] font-medium uppercase tracking-wider text-ink-faint">How it could be abused here</h4><p className="mt-0.5 leading-relaxed text-ink-dim">{explained.e.attack}</p></div>
+              <div>
+                <h4 className="text-[11px] font-medium uppercase tracking-wider text-ink-faint">Steps · about {explained.e.effort}</h4>
+                <ol className="mt-0.5 list-decimal space-y-1 pl-5 text-ink-dim">{explained.e.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
+              </div>
+            </div>
+          )}
+        </section>
 
         <section><h3 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-ink-faint">Why it matters</h3><p className="leading-relaxed text-ink-dim">{f.reason}</p></section>
         <section><h3 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-ink-faint">How to fix it</h3><p className="leading-relaxed text-ink-dim">{f.fix}</p></section>

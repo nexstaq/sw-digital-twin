@@ -6,5 +6,6 @@ initBotId({
     { path: "/api/scan", method: "GET" },
     { path: "/api/ask", method: "POST" },
     { path: "/api/security/scan", method: "POST" },
+    { path: "/api/security/explain", method: "POST" },
   ],
 });

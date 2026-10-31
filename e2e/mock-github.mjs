@@ -45,6 +45,36 @@ const dependabot = [
 ];
 const secretAlerts = [{ number: 3, state: "open", secret_type: "aws_access_key_id", secret_type_display_name: "AWS Access Key ID", secret: SECRET_VALUE, html_url: "https://github.com/acme/vault/security/secret-scanning/3" }];
 
+// ---- a stand-in for the INTERNET, for the passive-check tests. The app is pointed here by PASSIVE_CHECK_FIXTURE_URL, so no real
+// network is used. Three pretend sites: shop.test (badly configured), clean.test (well configured), private.test (resolves to a
+// private address, which the real network guard refuses).
+const FIXTURE_SECRET = "q7Zp4Lm9Xv2Kd8Tn5Rb3Wc6Yh1Jf0Ga"; // inside shop.test's exposed .env: the app must never keep it
+const published = new Map(); // host -> proof token, as a person would put it in DNS / a file
+const hits = new Map(); // host -> requests received (excluding the ownership-proof file)
+const GOOD_H = { "strict-transport-security": "max-age=63072000; includeSubDomains", "content-security-policy": "default-src 'self'; frame-ancestors 'none'", "x-content-type-options": "nosniff", server: "cloudflare" };
+function fixtureSite(host, path, scheme, method, headers) {
+  if (host === "private.test") return { blocked: true, error: "private.test resolves to a non-public address, so it will not be contacted" };
+  if (path === "/.well-known/mission-control-verify.txt") { const t = published.get(host); return t && scheme === "https" ? { status: 200, headers: { "content-type": "text/plain" }, body: t + "\n" } : { status: 404, headers: {}, body: "" }; }
+  hits.set(host, (hits.get(host) ?? 0) + 1);
+  if (host === "clean.test") {
+    if (scheme === "http") return { status: 301, headers: { location: "https://clean.test/" }, body: "" };
+    if (path === "/.well-known/security.txt") return { status: 200, headers: { "content-type": "text/plain" }, body: "Contact: mailto:sec@clean.test" };
+    return { status: path === "/" ? 200 : 404, headers: path === "/" ? { ...GOOD_H, "content-type": "text/html" } : { "content-type": "text/html" }, body: path === "/" ? "<html>ok</html>" : "" };
+  }
+  if (host !== "shop.test") return { status: 404, headers: {}, body: "" };
+  if (scheme === "http") return { status: 200, headers: { "content-type": "text/html" }, body: "<html>plain</html>" };
+  if (method === "OPTIONS") return { status: 200, headers: { allow: "GET, HEAD, OPTIONS, TRACE" }, body: "" };
+  if (path === "/") {
+    const h = { "content-type": "text/html", server: "nginx/1.18.0 (Ubuntu)", "x-powered-by": "Express", "set-cookie": ["sessionid=abc123; Path=/"] };
+    if (headers.origin) { h["access-control-allow-origin"] = headers.origin; h["access-control-allow-credentials"] = "true"; }
+    return { status: 200, headers: h, body: "<html>shop</html>" };
+  }
+  if (path === "/.env") return { status: 200, headers: { "content-type": "text/plain" }, body: `NODE_ENV=production\nDB_PASSWORD=${FIXTURE_SECRET}\n` };
+  if (path === "/.git/HEAD") return { status: 200, headers: { "content-type": "text/plain" }, body: "ref: refs/heads/main\n" };
+  return { status: 404, headers: { "content-type": "text/html" }, body: "" };
+}
+const FIX_CERT = { "shop.test": { authorized: true, protocol: "TLSv1.2", daysLeft: 9, keyBits: 2048, ec: false, issuer: "Fixture CA", subject: "shop.test" }, "clean.test": { authorized: true, protocol: "TLSv1.3", daysLeft: 80, keyBits: 256, ec: true } };
+
 const REPOS = { "acme/shop": { private: false }, "acme/vault": { private: true } };
 const authed = (req) => req.headers.authorization === `Bearer ${TOKEN}`;
 const visible = (name, req) => REPOS[name] && (!REPOS[name].private || authed(req));
@@ -123,6 +153,25 @@ createServer((req, res) => {
     if (kind === "code-scanning") return json(res, 403, { message: "Advanced Security must be enabled for this repository to use code scanning." });
     return n ? json(res, 200, [{ type: "commit", details: { path: "src/config.ts", start_line: 2, blob_sha: "x" } }]) : json(res, 200, secretAlerts);
   }
+  if (p === "/__passive/request") {
+    const q = url.searchParams; const host = q.get("host");
+    const r = fixtureSite(host, q.get("path"), q.get("scheme"), q.get("method"), JSON.parse(q.get("headers") || "{}"));
+    if (r.blocked) return json(res, 400, { error: r.error, blocked: true });
+    return json(res, 200, { ...r, bytes: r.body.length, truncated: false });
+  }
+  if (p === "/__passive/cert") { const c = FIX_CERT[url.searchParams.get("host")]; return c ? json(res, 200, c) : json(res, 502, { error: "no certificate" }); }
+  if (p === "/__passive/dns") {
+    const name = url.searchParams.get("name"), type = url.searchParams.get("type");
+    const m = /^_mission-control-verify\.(.+)$/.exec(name);
+    if (type === "TXT" && m) return published.has(m[1]) ? json(res, 200, [published.get(m[1])]) : json(res, 404, { error: "ENODATA" });
+    if (type === "MX" && name === "shop.test") return json(res, 200, ["mail.shop.test"]);
+    if (type === "TXT" && (name === "shop.test" || name === "_dmarc.shop.test")) return json(res, 200, []);
+    return json(res, 404, { error: "ENODATA" });
+  }
+  if (p === "/__passive/publish") { published.set(url.searchParams.get("host"), url.searchParams.get("token")); return json(res, 200, { ok: true }); }
+  if (p === "/__passive/unpublish") { published.delete(url.searchParams.get("host")); return json(res, 200, { ok: true }); }
+  if (p === "/__passive/stats") return json(res, 200, { hits: Object.fromEntries(hits) });
+  if (p === "/__passive/reset") { hits.clear(); published.clear(); return json(res, 200, { ok: true }); }
   if (p === "/__health") return json(res, 200, { ok: true, sha: SHA });
   json(res, 404, { message: `mock has no ${p}` });
 }).listen(PORT, () => console.log(`mock github on ${PORT}, fixture commit ${SHA.slice(0, 7)}`));
