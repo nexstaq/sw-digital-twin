@@ -2,7 +2,8 @@ import { expect, type BrowserContext, type Page } from "@playwright/test";
 
 /** Sign in through the real OAuth redirect chain (app -> mock GitHub -> callback). The test user is "alice". */
 export async function signIn(page: Page, returnTo = "/repos") {
-  await page.goto(`/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
+  await page.goto(`/signin?returnTo=${encodeURIComponent(returnTo)}`);
+  await page.getByRole("button", { name: "Continue to GitHub" }).click(); // the hand-off to GitHub is a button press, never an automatic redirect
   await expect(page.getByRole("button", { name: "Signed in as alice" })).toBeVisible();
 }
 

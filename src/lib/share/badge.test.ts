@@ -51,3 +51,24 @@ describe("locked headers (the security report)", () => {
     expect(h.find((x) => x.key === "Strict-Transport-Security")).toBeTruthy();
   });
 });
+
+describe("form-action (the sign-in form is redirected to GitHub, and Chrome applies form-action to redirects)", () => {
+  const formAction = () => securityHeaders(true).find((h) => h.key === "Content-Security-Policy")!.value.split("; ").find((d) => d.startsWith("form-action"))!;
+  it("allows this site and github.com, and nothing else", () => {
+    const prior = process.env.GITHUB_WEB_URL;
+    delete process.env.GITHUB_WEB_URL;
+    expect(formAction()).toBe("form-action 'self' https://github.com");
+    if (prior === undefined) delete process.env.GITHUB_WEB_URL; else process.env.GITHUB_WEB_URL = prior;
+  });
+  it("follows GITHUB_WEB_URL for GitHub Enterprise Server, and falls back safely on a bad value", () => {
+    const prior = process.env.GITHUB_WEB_URL;
+    process.env.GITHUB_WEB_URL = "https://ghe.example.com/";
+    expect(formAction()).toBe("form-action 'self' https://ghe.example.com");
+    process.env.GITHUB_WEB_URL = "not a url";
+    expect(formAction()).toBe("form-action 'self' https://github.com");
+    if (prior === undefined) delete process.env.GITHUB_WEB_URL; else process.env.GITHUB_WEB_URL = prior;
+  });
+  it("the locked report page still allows no form at all", () => {
+    expect(securityHeaders(true, { locked: true }).find((h) => h.key === "Content-Security-Policy")!.value).toContain("form-action 'none'");
+  });
+});

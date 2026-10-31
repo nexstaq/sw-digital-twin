@@ -105,7 +105,7 @@ function Loaded({ repo }: { repo: string }) {
       <Message icon={<LockKeyhole size={32} />} title="Security findings are for maintainers">
         <p role="alert">{state.message}</p>
         <p>A list of a project&apos;s vulnerabilities is more sensitive than its architecture, so it needs write access to the repository.</p>
-        <a className="text-accent underline" href={`/api/auth/login?returnTo=${encodeURIComponent(`/security?repo=${repo}`)}`}>Sign in with GitHub</a>
+        <a className="text-accent underline" href={`/signin?returnTo=${encodeURIComponent(`/security?repo=${repo}`)}`}>Sign in with GitHub</a>
       </Message>
     );
     case "nomap": return <Message icon={<ShieldCheck size={32} />} title="Map the repository first"><p>The security view colours the map, so it needs one.</p><a className="text-accent underline" href={back}>Map {repo}</a></Message>;

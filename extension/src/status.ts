@@ -20,7 +20,7 @@ export function viewOf(status: Status | null, origin: string, repo: string): Vie
   switch (status.state) {
     case "ok": return mk(status.word, status.tone, `Launch status: ${status.word}. ${status.why}`);
     case "unmapped": return mk("Map it", "unknown", "Not mapped yet. Open it to build the map.");
-    case "signin": return mk("Sign in", "unknown", "Private repository: sign in to Mission Control to see its status.", `${origin}/api/auth/login?returnTo=${encodeURIComponent(`/scan?repo=${repo}`)}`);
+    case "signin": return mk("Sign in", "unknown", "Private repository: sign in to Mission Control to see its status.", `${origin}/signin?returnTo=${encodeURIComponent(`/scan?repo=${repo}`)}`);
     case "offline": return mk("offline", "unknown", "Could not reach Mission Control.");
     default: return mk("n/a", "unknown", "No status available for this repository.");
   }

@@ -82,4 +82,56 @@ test.describe("identity and trust pages", () => {
     await page.waitForTimeout(500);
     expect(await context.cookies()).toEqual([]);
   });
+
+  test("no address on this site redirects to GitHub's login by itself: crawlers see an explanation page instead", async ({ request }) => {
+    // the old bare sign-in URL now only leads to OUR page
+    for (const url of ["/api/auth/login", "/api/auth/login?returnTo=/repos", "/api/auth/login?returnTo=https://evil.example"]) {
+      const r = await request.get(url, { maxRedirects: 0 });
+      expect(r.status(), url).toBe(302);
+      const loc = r.headers()["location"];
+      expect(loc, url).toMatch(/^\/signin\?returnTo=/);
+      expect(loc).not.toContain("github");
+      expect(loc).not.toContain("evil.example"); // an off-site returnTo is dropped
+    }
+    // and a GET can no longer start the handshake at all
+    const post = await request.post("/api/auth/login", { form: { returnTo: "/repos" }, maxRedirects: 0 });
+    expect(post.status()).toBe(303);
+    expect(post.headers()["location"]).toContain("/login/oauth/authorize");
+    expect(post.headers()["set-cookie"]).toContain("twin_oauth");
+  });
+
+  test("the sign-in page says what is about to happen, and only its button continues to GitHub", async ({ page }) => {
+    const problems = watchProblems(page);
+    await page.goto("/signin?returnTo=/repos");
+    await expect(page.getByRole("heading", { name: "Sign in with GitHub" })).toBeVisible();
+    await expect(page.getByText(/This site never sees it/)).toBeVisible();
+    await expect(page.getByText(/read-only/).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /source is public/ })).toHaveAttribute("href", SOURCE);
+    const form = page.locator("form[action='/api/auth/login']");
+    await expect(form).toHaveAttribute("method", /post/i);
+    await expect(form.locator("input[name=returnTo]")).toHaveValue("/repos");
+    // nothing on the page is a direct link to the login endpoint
+    expect(await page.locator("a[href*='api/auth/login']").count()).toBe(0);
+    await page.waitForTimeout(300);
+    expect(new URL(page.url()).pathname).toBe("/signin"); // it stays put until the button is pressed
+    expect(problems).toEqual([]);
+  });
+
+  test("the returnTo survives the round trip, and a hostile one is ignored", async ({ page }) => {
+    await page.goto("/signin?returnTo=" + encodeURIComponent("/scan?repo=acme/shop"));
+    await page.getByRole("button", { name: "Continue to GitHub" }).click();
+    await expect(page.getByRole("button", { name: "Signed in as alice" })).toBeVisible();
+    expect(page.url()).toContain("/scan");
+    const other = await page.context().newPage();
+    await other.goto("/signin?returnTo=" + encodeURIComponent("https://evil.example/steal"));
+    await other.getByRole("button", { name: "Continue to GitHub" }).click();
+    await expect(other).toHaveURL(/\/repos/); // not off-site: the default
+  });
+
+  test("public pages never link straight to the login endpoint", async ({ page }) => {
+    for (const path of ["/", "/about", "/privacy", "/repos", "/signin"]) {
+      await page.goto(path);
+      expect(await page.locator("a[href*='api/auth/login']").count(), path).toBe(0);
+    }
+  });
 });

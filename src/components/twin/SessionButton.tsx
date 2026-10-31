@@ -23,7 +23,7 @@ export function SessionButton() {
   if (!session.user) {
     const here = typeof window === "undefined" ? "/repos" : `${window.location.pathname}${window.location.search}`;
     return (
-      <a href={`/api/auth/login?returnTo=${encodeURIComponent(here)}`} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink-dim hover:text-ink">
+      <a href={`/signin?returnTo=${encodeURIComponent(here)}`} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink-dim hover:text-ink">
         <LogIn size={14} aria-hidden /><span className="hidden lg:inline">Sign in with GitHub</span><span className="lg:hidden">Sign in</span>
       </a>
     );

@@ -38,6 +38,6 @@ describe("viewOf", () => {
   it("a private repo sends you through sign-in and back to the map", () => {
     const v = viewOf({ state: "signin" }, O, "acme/vault");
     expect(v.text).toBe("Sign in");
-    expect(v.href).toBe("https://twin.example/api/auth/login?returnTo=%2Fscan%3Frepo%3Dacme%2Fvault");
+    expect(v.href).toBe("https://twin.example/signin?returnTo=%2Fscan%3Frepo%3Dacme%2Fvault");
   });
 });

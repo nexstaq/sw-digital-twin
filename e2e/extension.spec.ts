@@ -31,7 +31,8 @@ const open = async (url: string) => { const p = await ctx.newPage(); await p.got
 
 async function signedInAndMapped() {
   const p = await ctx.newPage();
-  await p.goto(`${APP}/api/auth/login?returnTo=/repos`);
+  await p.goto(`${APP}/signin?returnTo=/repos`);
+  await p.getByRole("button", { name: "Continue to GitHub" }).click();
   await expect(p.getByRole("button", { name: "Signed in as alice" })).toBeVisible();
   await p.goto(`${APP}/scan?repo=acme/vault`);
   await expect(p.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
@@ -77,7 +78,7 @@ test("GitHub navigates without reloading: the button follows to the next repo, a
 test("a private repo asks you to sign in, then shows its verdict through your own session", async () => {
   const before = await open("https://github.com/acme/vault");
   await expect(widget(before)).toContainText("Sign in");
-  await expect(widget(before)).toHaveAttribute("href", /\/api\/auth\/login\?returnTo=/);
+  await expect(widget(before)).toHaveAttribute("href", /\/signin\?returnTo=/);
 
   await signedInAndMapped();
   // back on the GitHub tab: it refreshes by itself (after the short cache for non-verdicts has lapsed), no reload needed

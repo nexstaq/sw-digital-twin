@@ -64,7 +64,7 @@ export function RepoPicker() {
           <h2 className="mt-3 text-lg font-medium">Private repositories</h2>
           <p className="mx-auto mt-1 max-w-md text-sm text-ink-dim">Sign in with GitHub and install the app on the repositories you want to see. We only read: workflows, deployments, and code structure.</p>
           <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-ink-faint">Signing in happens on github.com, where you approve read-only access. This site never sees your GitHub password. <a href="/privacy" className="underline underline-offset-2 hover:text-ink-dim">Privacy notice</a></p>
-          <a href="/api/auth/login?returnTo=/repos" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-void">Sign in with GitHub</a>
+          <a href="/signin?returnTo=/repos" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-void">Sign in with GitHub</a>
         </section>
       )}
       {session && !session.configured && <p className="mt-10 text-sm text-ink-faint">Sign-in isn&apos;t configured on this server, so only public repositories are available.</p>}

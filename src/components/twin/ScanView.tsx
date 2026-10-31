@@ -131,7 +131,7 @@ export function ScanView() {
       {error && (
         <div role="alert" className="flex gap-2 rounded-xl border border-failing/50 bg-failing/10 p-3 text-sm text-failing">
           <TriangleAlert size={16} className="mt-0.5 shrink-0" />
-          <div>{error}{/sign in/i.test(error) && <a href={`/api/auth/login?returnTo=${encodeURIComponent(`/scan?repo=${input.trim()}`)}`} className="mt-2 block font-medium underline">Sign in with GitHub</a>}</div>
+          <div>{error}{/sign in/i.test(error) && <a href={`/signin?returnTo=${encodeURIComponent(`/scan?repo=${input.trim()}`)}`} className="mt-2 block font-medium underline">Sign in with GitHub</a>}</div>
         </div>
       )}
       {graph && graph.nodes.length === 0 && !running && !error && (

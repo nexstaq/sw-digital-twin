@@ -7,6 +7,11 @@ export interface Header { key: string; value: string }
  * undo the prerendering this app relies on. So `script-src` needs 'unsafe-inline' for Next's own bootstrap scripts. What the
  * policy still buys: no eval, no plugins, no foreign script/connect origins, no framing, no <base> or form hijacking.
  */
+/** Where sign-in hands off to: github.com, or a GitHub Enterprise Server / test double named by GITHUB_WEB_URL. */
+function githubOrigin(): string {
+  try { return new URL(process.env.GITHUB_WEB_URL || "https://github.com").origin; } catch { return "https://github.com"; }
+}
+
 export function securityHeaders(prod: boolean, o: { embeddable?: boolean; /** a static document that needs no scripts at all (the security report) */ locked?: boolean } = {}): Header[] {
   const csp = o.locked ? "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" : [
     "default-src 'self'",
@@ -18,7 +23,7 @@ export function securityHeaders(prod: boolean, o: { embeddable?: boolean; /** a 
     "worker-src 'self' blob:", // the layout engine can spin up a worker
     "object-src 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    `form-action 'self' ${githubOrigin()}`, // the sign-in form POSTs here and is redirected to GitHub; Chrome applies form-action to that redirect
     "frame-ancestors 'none'",
     ...(prod ? ["upgrade-insecure-requests"] : []),
   ].join("; ");
