@@ -1,0 +1,15 @@
+# Local-only files never go to Vercel (having this file means .gitignore is not consulted, so list them all)
+.git
+node_modules
+.next
+.next-e2e
+.data
+.env
+.env.*
+!.env.example
+test-results
+playwright-report
+.vercel
+extension/dist
+*.log
+.DS_Store
