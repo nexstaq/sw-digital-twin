@@ -17,7 +17,9 @@ async function scanVault(page: Page) {
   await mapRepo(page, "acme/vault");
   await page.goto("/security?repo=acme/vault");
   await posture(page).getByRole("button", { name: /Run security scan|Scan again/ }).click();
-  await expect(posture(page).getByRole("img", { name: /Security grade/ })).toBeVisible({ timeout: 30_000 });
+  // the grade can already be on screen from an earlier test's stored scan, so wait for THIS scan to end ("Scanning…" turns back into "Scan again")
+  await expect(posture(page).getByRole("button", { name: "Scan again" })).toBeEnabled({ timeout: 30_000 });
+  await expect(posture(page).getByRole("img", { name: /Security grade/ })).toBeVisible();
 }
 const openSources = async (page: Page) => { await sources(page).getByText("Sources and live testing").click(); };
 
