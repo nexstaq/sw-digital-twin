@@ -9,6 +9,24 @@ The plan said "Clerk via the Marketplace". v1 is GitHub-only, and the thing that
 - **Writes** (shared mappings) need `push` access.
 - Used by: `/api/scan`, `/api/health/stream`, `/api/snapshots`, `/api/mappings`. A GitHub outage while checking is a 502, never an accidental "allow".
 
+## Access settings: who may open each view
+Maintainers (push access) choose, per repository and per view, who may open it, at `/settings?repo=owner/name` (the **Access** button on the map). Two models exist, defined in `src/lib/access/views.ts`:
+- **GitHub access** (default for the map and live health): the rule above.
+- **Maintainers only**: the caller must be signed in and have push access, checked with their own token.
+
+| View | Covers | Choices |
+|---|---|---|
+| System map | map, saved versions, corrections, signal mappings | either (default: GitHub access) |
+| Live health | health colouring, the verdict, the extension button, the live stream, the badge and status card | either (default: GitHub access) |
+| Security | findings, reports, live-site checks, imports, scheduled scans | fixed to maintainers: a list of weaknesses is not opened to everyone who can read the code |
+
+Rules that keep this safe:
+- A setting can only **narrow** access. GitHub still decides who can read the repo; the page and `PUT /api/settings/access` need push access and are never relaxed by a setting.
+- Enforced in one place: `authorizeRepo(req, repo, { view })` raises the requirement to push when the view is limited. If the setting cannot be read it answers 502, never "allow".
+- A stored value a view does not allow is ignored (so Security can never be weakened), and the server rejects it with a 400.
+- **Share links still work** on a limited view: a link is a deliberate grant by a maintainer. For a public repo with a limited map or health, the anonymous badge, status card and shared page need a valid share secret; a guessed secret does not help.
+- Adding a model later (a named GitHub team, a list of people) is one entry in `MODELS` plus one branch in `authorizeRepo`.
+
 ## Sessions
 One httpOnly, SameSite=Lax (Secure over https) cookie, **sealed with AES-256-GCM** from `SESSION_SECRET`. It holds the session including the GitHub token, so the token never reaches page JavaScript and there is no session table. GitHub tokens expire after 8h; `/api/auth/me` (called on page load) and any authorised route refresh them with the refresh token and re-issue the cookie; a revoked refresh token signs the user out. Sign-out is `POST /api/auth/logout`. OAuth uses a random `state` (sealed in a short-lived cookie, constant-time compared); post-login redirects accept only same-site relative paths.
 

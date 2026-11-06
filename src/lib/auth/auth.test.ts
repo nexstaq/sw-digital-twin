@@ -164,6 +164,36 @@ describe("authorizeRepo: who may see what", () => {
   });
 });
 
+describe("authorizeRepo: a view limited to maintainers", () => {
+  const signedIn = { viewer: async () => ({ session: session() }) };
+  const anon = { viewer: async () => null };
+  const pub = { isPublic: async () => true };
+  const app = { appToken: async () => "tok" };
+  const yes = (push: boolean) => ({ access: async () => ({ read: true, push, private: false }) });
+  const limited = (view: "map" | "health") => ({ settings: async () => ({ [view]: "maintainers" as const }) });
+  const run = (deps: object, view: "map" | "health" | "security") => authorizeRepo(req(), "o/r", { view, deps: deps as never });
+
+  it("without a setting a public repo's view is still open to anyone", async () => {
+    expect(await run({ ...pub, ...anon, ...app, settings: async () => ({}) }, "health")).toMatchObject({ ok: true });
+  });
+  it("limited: a signed-out visitor, even to a public repo, is asked to sign in", async () => {
+    expect(await run({ ...pub, ...anon, ...app, ...limited("health") }, "health")).toMatchObject({ ok: false, status: 401, message: expect.stringContaining("maintainers") });
+  });
+  it("limited: a reader without push access is refused, a maintainer is let in", async () => {
+    expect(await run({ ...pub, ...signedIn, ...yes(false), ...app, ...limited("map") }, "map")).toMatchObject({ ok: false, status: 403, message: expect.stringContaining("maintainers") });
+    expect(await run({ ...pub, ...signedIn, ...yes(true), ...app, ...limited("map") }, "map")).toMatchObject({ ok: true });
+  });
+  it("limiting one view leaves the others alone", async () => {
+    expect(await run({ ...pub, ...anon, ...app, ...limited("health") }, "map")).toMatchObject({ ok: true });
+  });
+  it("the security view is for maintainers with no setting at all", async () => {
+    expect(await run({ ...pub, ...anon, ...app, settings: async () => ({}) }, "security")).toMatchObject({ ok: false, status: 401 });
+  });
+  it("cannot read the setting: refuses rather than guessing", async () => {
+    expect(await run({ ...pub, ...anon, ...app, settings: async () => { throw new Error("db down"); } }, "map")).toMatchObject({ ok: false, status: 502 });
+  });
+});
+
 describe("tokenFor installationOnly", () => {
   it("never returns the shared PAT for private repos", async () => {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });

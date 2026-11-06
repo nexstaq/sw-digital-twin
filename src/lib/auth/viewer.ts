@@ -1,4 +1,6 @@
+import { needsMaintainer, type AccessSettings, type ViewId } from "@/lib/access/views";
 import { isPublicRepo } from "@/lib/github/signals";
+import { persist } from "@/lib/persist";
 import { tokenFor } from "@/lib/github/app";
 import { oauthConfig, refreshTokens, repoAccess, type RepoAccess } from "./github";
 import { parseCookies, readSession, SESSION_COOKIE, SESSION_TTL_MS, seal, secretOk, setCookie, type Session } from "./session";
@@ -37,20 +39,26 @@ export type Authz =
  *  - anything else: only a signed-in user whom GitHub (asked with THEIR token) says can read it.
  * The App's token is used for reading only AFTER that check passes, so it can never reveal a repo to someone GitHub would refuse.
  */
-export async function authorizeRepo(req: Request, repo: string, o: { need?: "read" | "push"; deps?: { isPublic?: typeof isPublicRepo; access?: typeof repoAccess; appToken?: typeof tokenFor; viewer?: typeof viewerOf } } = {}): Promise<Authz> {
-  const d = { isPublic: isPublicRepo, access: repoAccess, appToken: tokenFor, viewer: viewerOf, ...o.deps };
-  const need = o.need ?? "read";
+export async function authorizeRepo(req: Request, repo: string, o: { need?: "read" | "push"; /** the view being opened: the repo's access setting for it may raise `need` to push */ view?: ViewId; deps?: { settings?: (repo: string) => Promise<AccessSettings>; isPublic?: typeof isPublicRepo; access?: typeof repoAccess; appToken?: typeof tokenFor; viewer?: typeof viewerOf } } = {}): Promise<Authz> {
+  const d = { settings: (r: string) => persist().getAccess(r), isPublic: isPublicRepo, access: repoAccess, appToken: tokenFor, viewer: viewerOf, ...o.deps };
+  let need = o.need ?? "read";
+  // a maintainer may have limited this view to maintainers. Fail closed: if we cannot read the setting we do not guess.
+  let limited = false;
+  if (o.view && need === "read") {
+    try { limited = needsMaintainer(await d.settings(repo), o.view); } catch { return { ok: false, status: 502, message: "Could not check this repository's access settings." }; }
+    if (limited) need = "push";
+  }
   let pub: boolean;
   try { pub = await d.isPublic(repo); } catch (e) { return { ok: false, status: 429, message: e instanceof Error ? e.message : "Could not reach GitHub." }; }
 
   const v = await d.viewer(req);
   if (pub && need === "read") return { ok: true, private: false, token: await d.appToken(repo), login: v?.session.login, setCookie: v?.setCookie };
-  if (!v) return { ok: false, status: 401, message: pub ? "Sign in with GitHub to do that." : "This repository is private or doesn't exist. Sign in with GitHub and install the app to see private repositories." };
+  if (!v) return { ok: false, status: 401, message: limited ? "This view is limited to the repository's maintainers. Sign in with GitHub." : pub ? "Sign in with GitHub to do that." : "This repository is private or doesn't exist. Sign in with GitHub and install the app to see private repositories." };
 
   let access: RepoAccess;
   try { access = await d.access(v.session.token, repo); } catch { return { ok: false, status: 502, message: "Could not check your access with GitHub." }; }
   if (!access.read) return { ok: false, status: 403, message: "GitHub says your account can't see this repository." };
-  if (need === "push" && !access.push) return { ok: false, status: 403, message: "You need write access to this repository to change it." };
+  if (need === "push" && !access.push) return { ok: false, status: 403, message: limited ? "This view is limited to the repository's maintainers." : "You need write access to this repository to change it." };
   return { ok: true, private: access.private, access, login: v.session.login, token: (await d.appToken(repo, { installationOnly: true })) ?? v.session.token, setCookie: v.setCookie };
 }
 

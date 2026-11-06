@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { AccessSettings } from "@/lib/access/views";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
 import type { DomainEntry, FindingSet, Schedule } from "@/lib/security/types";
@@ -24,6 +25,8 @@ export function filePersist(root = path.join(/*turbopackIgnore: true*/ process.c
   };
   const sharesFile = (repo: string) => path.join(/*turbopackIgnore: true*/ dir(repo), "shares.json");
   return {
+    async getAccess(repo) { return readJson<AccessSettings>(path.join(/*turbopackIgnore: true*/ dir(repo), "access.json"), {}); },
+    async putAccess(repo, a) { await writeJson(path.join(/*turbopackIgnore: true*/ dir(repo), "access.json"), a); },
     async getSchedule(repo) { return readJson<Schedule | null>(path.join(/*turbopackIgnore: true*/ dir(repo), "schedule.json"), null); },
     async putSchedule(repo, s) { await writeJson(path.join(/*turbopackIgnore: true*/ dir(repo), "schedule.json"), s); },
     async listSchedules() {

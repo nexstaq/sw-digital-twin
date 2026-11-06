@@ -1,3 +1,4 @@
+import { needsMaintainer } from "@/lib/access/views";
 import { applyOverrides } from "@/lib/graph/overrides";
 import { explainVerdict, type Verdict } from "@/lib/graph/verdict";
 import { applyHealth } from "@/lib/health/engine";
@@ -39,7 +40,10 @@ export function viewVerdict(v: Extract<SharedView, { ok: true }>): Verdict {
 export async function openSharedView(repo: string, secret: string | undefined, o: { requireSecret?: boolean } = {}): Promise<SharedView> {
   let pub = false;
   try { pub = await isPublicRepo(repo); } catch { /* treat as not public */ }
-  if (o.requireSecret || !pub) {
+  // a repo whose maintainers limited the map or live health to themselves is not open to the public, whatever GitHub says; a share link still works
+  let restricted = false;
+  if (pub) { try { const a = await persist().getAccess(repo); restricted = needsMaintainer(a, "map") || needsMaintainer(a, "health"); } catch { restricted = true; } }
+  if (o.requireSecret || !pub || restricted) {
     if (!secret || !matchShare(await persist().listShares(repo), secret)) return { ok: false, reason: "forbidden" };
   }
   return loadView(repo, { token: await tokenFor(repo, { installationOnly: !pub }) });

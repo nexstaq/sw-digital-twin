@@ -39,6 +39,15 @@ const contract = (name: string, make: () => Persist) => describe(`${name} adapte
     expect((await p.getFindings("acme/shop"))!.scannedAt).toBe(2);
     expect(await p.getFindings("other/repo")).toBeNull();
   });
+  it("stores access choices per repo (case-insensitive), replacing them wholesale", async () => {
+    const p = make();
+    expect(await p.getAccess("acme/shop")).toEqual({});
+    await p.putAccess("Acme/Shop", { health: "maintainers" });
+    expect(await p.getAccess("acme/shop")).toEqual({ health: "maintainers" });
+    await p.putAccess("acme/shop", { map: "maintainers" });
+    expect(await p.getAccess("acme/shop")).toEqual({ map: "maintainers" });
+    expect(await p.getAccess("other/repo")).toEqual({});
+  });
   it("stores a scan schedule per repo (case-insensitive), lists them all, and removes with null", async () => {
     const p = make();
     expect(await p.getSchedule("acme/shop")).toBeNull();

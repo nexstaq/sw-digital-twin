@@ -1,4 +1,5 @@
 import type { TwinGraph } from "@/lib/graph/types";
+import type { AccessSettings } from "@/lib/access/views";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
 import type { DomainEntry, FindingSet, Schedule } from "@/lib/security/types";
@@ -30,6 +31,9 @@ export interface Persist {
   /** domains maintainers asked us to test, with their ownership proof (the token is public by design) */
   getDomains(repo: string): Promise<DomainEntry[]>;
   putDomains(repo: string, domains: DomainEntry[]): Promise<void>;
+  /** who may open each view of the repo; only the choices a maintainer made (the rest are the views' defaults) */
+  getAccess(repo: string): Promise<AccessSettings>;
+  putAccess(repo: string, settings: AccessSettings): Promise<void>;
   /** automatic re-scan settings; null removes the schedule */
   getSchedule(repo: string): Promise<Schedule | null>;
   putSchedule(repo: string, schedule: Schedule | null): Promise<void>;

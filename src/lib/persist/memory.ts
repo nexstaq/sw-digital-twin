@@ -1,3 +1,4 @@
+import type { AccessSettings } from "@/lib/access/views";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
 import type { DomainEntry, FindingSet, Schedule } from "@/lib/security/types";
@@ -35,8 +36,11 @@ export function memoryPersist(): Persist {
   const found = new Map<string, FindingSet>();
   const doms = new Map<string, DomainEntry[]>();
   const sched = new Map<string, Schedule>();
+  const acc = new Map<string, AccessSettings>();
   const k = (r: string) => r.toLowerCase();
   return {
+    async getAccess(repo) { return { ...(acc.get(k(repo)) ?? {}) }; },
+    async putAccess(repo, a) { acc.set(k(repo), { ...a }); },
     async getSchedule(repo) { return structuredClone(sched.get(k(repo)) ?? null); },
     async putSchedule(repo, s) { if (s) sched.set(k(repo), structuredClone(s)); else sched.delete(k(repo)); },
     async listSchedules() { return [...sched].map(([repo, schedule]) => ({ repo, schedule: structuredClone(schedule) })); },

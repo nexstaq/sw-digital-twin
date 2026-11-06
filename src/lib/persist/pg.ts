@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import type { AccessSettings } from "@/lib/access/views";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
 import type { DomainEntry, FindingSet, Schedule } from "@/lib/security/types";
@@ -32,6 +33,7 @@ export function ddl(schema: string): string[] {
        PRIMARY KEY (repo, sha))`,
     `CREATE TABLE IF NOT EXISTS ${s}.mappings (repo text PRIMARY KEY, mappings jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.domains (repo text PRIMARY KEY, data jsonb NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ${s}.access (repo text PRIMARY KEY, data jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.schedules (repo text PRIMARY KEY, data jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.findings (repo text PRIMARY KEY, data jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.overrides (repo text PRIMARY KEY, overrides jsonb NOT NULL)`,
@@ -60,6 +62,15 @@ export function pgPersist(sql: Sql, schema = "twin"): Persist {
   const k = (repo: string) => repo.toLowerCase();
 
   return {
+    async getAccess(repo) {
+      await init();
+      const r = await sql(`SELECT data FROM ${t("access")} WHERE repo = $1`, [k(repo)]);
+      return (r[0]?.data as AccessSettings | undefined) ?? {};
+    },
+    async putAccess(repo, a) {
+      await init();
+      await sql(`INSERT INTO ${t("access")} (repo, data) VALUES ($1, $2::jsonb) ON CONFLICT (repo) DO UPDATE SET data = EXCLUDED.data`, [k(repo), JSON.stringify(a)]);
+    },
     async getSchedule(repo) {
       await init();
       const r = await sql(`SELECT data FROM ${t("schedules")} WHERE repo = $1`, [k(repo)]);

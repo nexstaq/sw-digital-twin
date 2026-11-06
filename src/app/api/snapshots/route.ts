@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   try { const r = parseRepo(url.searchParams.get("repo") ?? ""); repo = `${r.owner}/${r.name}`.toLowerCase(); } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 400 });
   }
-  const a = await authorizeRepo(req, repo);
+  const a = await authorizeRepo(req, repo, { view: "map" });
   if (!a.ok) return Response.json({ error: a.message }, { status: a.status });
   const sha = url.searchParams.get("sha");
   if (sha) {

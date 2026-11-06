@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     return new Response(sse({ type: "error", message: "Too many live viewers right now. Retrying…" }), { status: 429, headers: { "content-type": "text/event-stream" } });
   }
   // authorise BEFORE reading anything: private repos need a signed-in user that GitHub says can read them
-  const authz = await authorizeRepo(req, repo);
+  const authz = await authorizeRepo(req, repo, { view: "health" });
   if (!authz.ok) return new Response(sse({ type: "error", fatal: true, message: authz.message }), { status: authz.status, headers: { "content-type": "text/event-stream" } });
   open++;
 

@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   try { const r = parseRepo(repo); slug = `${r.owner}/${r.name}`.toLowerCase(); } catch (e) {
     return new Response(sse({ type: "error", message: (e as Error).message }), { status: 400, headers: { "content-type": "text/event-stream" } });
   }
-  const authz = await authorizeRepo(req, slug);
+  const authz = await authorizeRepo(req, slug, { view: "map" });
   if (!authz.ok) return new Response(sse({ type: "error", message: authz.message }), { status: authz.status, headers: { "content-type": "text/event-stream" } });
 
   if (inFlight >= MAX_CONCURRENT) {

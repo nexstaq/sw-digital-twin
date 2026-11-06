@@ -10,7 +10,7 @@ const Body = z.object({ mappings: z.record(z.string().max(300), z.string().max(3
 export async function GET(req: Request) {
   let repo: string;
   try { repo = slugOf(new URL(req.url).searchParams.get("repo")); } catch (e) { return Response.json({ error: (e as Error).message }, { status: 400 }); }
-  const a = await authorizeRepo(req, repo);
+  const a = await authorizeRepo(req, repo, { view: "map" });
   if (!a.ok) return Response.json({ error: a.message }, { status: a.status });
   return withSetCookie(Response.json({ mappings: await persist().getMappings(repo), canEdit: !!a.access?.push }), a.setCookie);
 }
