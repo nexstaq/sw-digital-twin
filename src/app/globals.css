@@ -7,7 +7,7 @@
   --color-line: #1e2a3d;
   --color-ink: #e6edf7;
   --color-ink-dim: #8b9bb4;
-  --color-ink-faint: #56647c;
+  --color-ink-faint: #74849e; /* 4.7:1 on the raised panels, 5.3:1 on the page: WCAG AA for small text */
   --color-nominal: #34d399;
   --color-degraded: #fbbf24;
   --color-failing: #fb4b5c;

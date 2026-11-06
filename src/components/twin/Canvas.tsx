@@ -3,7 +3,6 @@
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Background, BackgroundVariant, Controls, ReactFlow, ReactFlowProvider, useReactFlow } from "@xyflow/react";
-import ELK from "elkjs/lib/elk.bundled.js";
 import { ChevronRight, Home, Search, Zap } from "lucide-react";
 import type { TwinGraph, TwinNode } from "@/lib/graph/types";
 import { childrenOf, nodeById } from "@/lib/graph/fixture";
@@ -30,7 +29,9 @@ import { TourPlayer, useTourSteps } from "./TourPlayer";
 
 const nodeTypes = { tile: TileNodeComponent };
 const edgeTypes = { flow: AnimatedEdge };
-const elk = new ELK();
+/** The layout engine is ~1.7 MB, so it loads the first time a map is laid out, not with every page that links to one. */
+let elkPromise: Promise<{ layout: (g: unknown) => Promise<{ children?: { id: string; x?: number; y?: number }[] }> }> | undefined;
+const getElk = () => (elkPromise ??= import("elkjs/lib/elk.bundled.js").then((m) => new m.default() as never));
 /** zooming in past this over a node with children opens it */
 const AUTO_DRILL_ZOOM = 1.5;
 
@@ -125,8 +126,8 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "healt
     const visible = childrenOf(graph, parentId).sort((a, b) => (a.narrative?.order ?? 99) - (b.narrative?.order ?? 99));
     const ids = new Set(visible.map((v) => v.id));
     const es = graph.edges.filter((x) => ids.has(x.from) && ids.has(x.to));
-    elk
-      .layout({
+    getElk()
+      .then((elk) => elk.layout({
         id: "root",
         layoutOptions: {
           "elk.algorithm": "layered",
@@ -138,7 +139,7 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "healt
         },
         children: visible.map((v) => ({ id: v.id, width: TILE_W, height: TILE_H })),
         edges: es.map((x) => ({ id: x.id, sources: [x.from], targets: [x.to] })),
-      })
+      }))
       .then((res) => {
         if (cancelled) return;
         setLaid({

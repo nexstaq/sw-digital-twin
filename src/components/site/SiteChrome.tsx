@@ -24,16 +24,16 @@ export function SiteFooter() {
   return (
     <footer className="mx-auto mt-16 w-full max-w-5xl border-t border-line px-6 py-8 text-xs leading-relaxed text-ink-faint">
       <p>
-        {SITE.product} is built and run by <a href={SITE.operatorUrl} className="text-ink-dim underline-offset-2 hover:underline" rel="noopener noreferrer">{SITE.operator}</a> and is open source.
+        {SITE.product} is built and run by <a href={SITE.operatorUrl} className="text-ink-dim underline underline-offset-2 hover:text-ink" rel="noopener noreferrer">{SITE.operator}</a> and is open source.
         It is not affiliated with, endorsed by or sponsored by GitHub, Inc. “GitHub” is a trademark of GitHub, Inc.
       </p>
-      <nav aria-label="Footer" className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
-        <Link href="/about" className="hover:text-ink-dim">About</Link>
-        <Link href="/privacy" className="hover:text-ink-dim">Privacy</Link>
-        <a href={SITE.source} className="hover:text-ink-dim" rel="noopener noreferrer">Source code</a>
-        <a href={SITE.issues} className="hover:text-ink-dim" rel="noopener noreferrer">Contact and issues</a>
-        <a href={SITE.securityReport} className="hover:text-ink-dim" rel="noopener noreferrer">Report a security problem</a>
-        <a href="/.well-known/security.txt" className="hover:text-ink-dim">security.txt</a>
+      <nav aria-label="Footer" className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5">
+        <Link href="/about" className="inline-block py-1 hover:text-ink-dim">About</Link>
+        <Link href="/privacy" className="inline-block py-1 hover:text-ink-dim">Privacy</Link>
+        <a href={SITE.source} className="inline-block py-1 hover:text-ink-dim" rel="noopener noreferrer">Source code</a>
+        <a href={SITE.issues} className="inline-block py-1 hover:text-ink-dim" rel="noopener noreferrer">Contact and issues</a>
+        <a href={SITE.securityReport} className="inline-block py-1 hover:text-ink-dim" rel="noopener noreferrer">Report a security problem</a>
+        <a href="/.well-known/security.txt" className="inline-block py-1 hover:text-ink-dim">security.txt</a>
       </nav>
     </footer>
   );
