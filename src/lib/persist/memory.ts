@@ -1,6 +1,6 @@
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
-import type { DomainEntry, FindingSet } from "@/lib/security/types";
+import type { DomainEntry, FindingSet, Schedule } from "@/lib/security/types";
 import type { Share } from "@/lib/share/token";
 import { RETENTION_MS, type Persist, type Snapshot } from "./types";
 
@@ -34,8 +34,12 @@ export function memoryPersist(): Persist {
   const shares = new Map<string, Share[]>();
   const found = new Map<string, FindingSet>();
   const doms = new Map<string, DomainEntry[]>();
+  const sched = new Map<string, Schedule>();
   const k = (r: string) => r.toLowerCase();
   return {
+    async getSchedule(repo) { return structuredClone(sched.get(k(repo)) ?? null); },
+    async putSchedule(repo, s) { if (s) sched.set(k(repo), structuredClone(s)); else sched.delete(k(repo)); },
+    async listSchedules() { return [...sched].map(([repo, schedule]) => ({ repo, schedule: structuredClone(schedule) })); },
     async getDomains(repo) { return structuredClone(doms.get(k(repo)) ?? []); },
     async putDomains(repo, d) { doms.set(k(repo), structuredClone(d)); },
     async getFindings(repo) { return structuredClone(found.get(k(repo)) ?? null); },

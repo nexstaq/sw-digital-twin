@@ -39,6 +39,18 @@ const contract = (name: string, make: () => Persist) => describe(`${name} adapte
     expect((await p.getFindings("acme/shop"))!.scannedAt).toBe(2);
     expect(await p.getFindings("other/repo")).toBeNull();
   });
+  it("stores a scan schedule per repo (case-insensitive), lists them all, and removes with null", async () => {
+    const p = make();
+    expect(await p.getSchedule("acme/shop")).toBeNull();
+    const sc = { cadence: "daily" as const, enabledBy: "ada", enabledAt: 1 };
+    await p.putSchedule("Acme/Shop", sc);
+    expect(await p.getSchedule("acme/shop")).toEqual(sc);
+    await p.putSchedule("acme/other", { ...sc, cadence: "weekly" });
+    expect((await p.listSchedules()).map((x) => x.repo).sort()).toEqual(["acme/other", "acme/shop"]);
+    await p.putSchedule("acme/shop", null);
+    expect(await p.getSchedule("acme/shop")).toBeNull();
+    expect((await p.listSchedules()).map((x) => x.repo)).toEqual(["acme/other"]);
+  });
   it("stores the domains to test per repo (case-insensitive), replacing the list wholesale", async () => {
     const p = make();
     expect(await p.getDomains("acme/shop")).toEqual([]);

@@ -153,19 +153,29 @@ The safety model, because a server that fetches user-typed hostnames is an SSRF 
 Validated against the real network on a real site (`sw-digital-twin.nexstaq.com`): 23 requests in 4.5 s, one accurate finding.
 
 ### Not yet (S4)
-Scheduled passive checks; subdomain discovery; deeper TLS probing (legacy protocol and cipher enumeration); checking a site behind
+Subdomain discovery; deeper TLS probing (legacy protocol and cipher enumeration); checking a site behind
 authentication; AI that sees code (deliberately off: sending source to a model is a separate decision).
 
 ### Not yet (S3)
 Passive checks (TLS, headers, cookie flags, exposed files) against a domain whose ownership we have verified; importing other
 formats (CycloneDX/SPDX SBOMs); webhooks so a GitHub alert shows up without a scan.
 
-## Roadmap
-S1 to S4 are done (above).
+## Scheduled re-scans
+A maintainer (push access) can switch on **Every day** or **Every week** under "Scheduled scans" on the Security panel. It is off by default
+and can be switched off at any time.
+- One Vercel Cron job (`vercel.json`, 04:17 UTC daily) calls `GET /api/cron/rescan`. It does nothing unless `CRON_SECRET` is set and the
+  request carries `Authorization: Bearer <CRON_SECRET>` (Vercel adds this itself). With no secret the route answers 503 to everyone.
+- Each run scans the repos that are due (oldest first, at most 5 per run, none started in the last ~100 s of the time budget), using the
+  same code as the Scan button (`scanAndStore`). The repo is read with the GitHub App's installation token, so the App must stay installed
+  for a private repo; the signed-in user's token is never stored.
+- After the scan, each **verified** domain is re-checked with the same function as the Check button, so ownership is re-proved first.
+- One repo failing never stops the others. The outcome (time, ok/failed, a short message) is written back and shown on the panel.
+- On the Hobby plan Vercel runs crons at most once a day, so "daily" is the finest cadence.
+Not built: notifications when a scheduled scan finds something new (the delta shows on the page), and automatic switch-off after repeated failures.
 
 ## Not yet (overall)
 Git history scanning (a secret removed from HEAD is not found), real taint tracking across functions and files (rules look at one
-call at a time), Java/Go/Ruby/Rust code rules, Rust/Java/Ruby dependency reachability, OSV rate-limit retry, scheduled re-scans, and a
+call at a time), Java/Go/Ruby/Rust code rules, Rust/Java/Ruby dependency reachability, OSV rate-limit retry, and a
 true server-side PDF (use the browser's Save as PDF).
 
 ## Testing

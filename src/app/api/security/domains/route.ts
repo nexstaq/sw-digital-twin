@@ -2,9 +2,9 @@ import { z } from "zod";
 import { authorizeRepo, withSetCookie } from "@/lib/auth/viewer";
 import { parseRepo } from "@/lib/ingest/repo";
 import { persist } from "@/lib/persist";
-import { byPriority } from "@/lib/security/map";
 import { instructions, newVerifyToken, parseDomain } from "@/lib/security/passive/domain";
-import { runPassiveChecks, verifyOwnership } from "@/lib/security/passive/run";
+import { checkDomainAndStore } from "@/lib/security/passive/check-domain";
+import { verifyOwnership } from "@/lib/security/passive/run";
 import { getTransport } from "@/lib/security/passive/transport";
 import { LIMITS, rateLimit, tooMany } from "@/lib/security/ratelimit";
 import { refreshTrend } from "@/lib/security/trend";
@@ -79,27 +79,9 @@ export async function POST(req: Request) {
   if (!lim.ok) return tooMany(lim);
   const wait = entry.lastCheckAt ? entry.lastCheckAt + cooldownMs() - Date.now() : 0;
   if (wait > 0) return err(`${domain} was checked a moment ago. Try again in ${Math.ceil(wait / 1000)} seconds.`, 429, { retryAfterSec: Math.ceil(wait / 1000) });
-  const proof = await verifyOwnership(domain, entry.token, transport); // every run, not just the first
-  if (!proof.ok) {
-    await store.putDomains(g.repo, list.map((d) => (d.domain === domain ? { ...d, verifiedAt: undefined, verifiedVia: undefined } : d)));
-    return err("Ownership of this domain could not be proven just now, so nothing was sent to it. Check the DNS record or file is still in place.", 403, { reasons: proof.reasons });
-  }
-  const set = await store.getFindings(g.repo);
-  if (!set) return err("Run a security scan first, then run these checks.", 409);
-
-  const run = await runPassiveChecks(domain, transport);
-  if (run.blocked) return err(run.notes[0] ?? "That domain cannot be checked.", 400);
-
-  const key = `passive:${domain}`;
-  const now = Date.now();
-  const next = refreshTrend({
-    ...set,
-    findings: [...set.findings.filter((f) => f.detail.source !== key), ...run.findings].sort(byPriority),
-    sources: { ...set.sources, [key]: { status: "ok", label: domain, count: run.findings.length, importedAt: now, via: "check", ...(run.notes.length ? { message: run.notes.join(" ") } : {}) } },
-  });
-  await store.putFindings(g.repo, next);
-  await store.putDomains(g.repo, list.map((d) => (d.domain === domain ? { ...d, verifiedAt: now, verifiedVia: proof.via, lastCheckAt: now, lastCheckCount: run.findings.length } : d)));
-  return done(Response.json({ checked: true, findings: run.findings.length, requests: run.requests, notes: run.notes }, { headers: NO_STORE }));
+  const res = await checkDomainAndStore(g.repo, domain, transport);
+  if (!res.ok) return done(err(res.error, res.status, res.reasons ? { reasons: res.reasons } : {}));
+  return done(Response.json({ checked: true, findings: res.findings, requests: res.requests, notes: res.notes }, { headers: NO_STORE }));
 }
 
 /** Stop testing a domain: forget it and remove the findings from its checks. */

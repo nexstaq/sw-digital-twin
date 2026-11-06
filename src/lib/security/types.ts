@@ -108,6 +108,17 @@ export const DomainEntrySchema = z.object({
 });
 export type DomainEntry = z.infer<typeof DomainEntrySchema>;
 
+/** A maintainer's request to re-scan a repo automatically. Only the fact of consent is stored, never a credential. */
+export const ScheduleSchema = z.object({
+  cadence: z.enum(["daily", "weekly"]),
+  enabledBy: z.string(),
+  enabledAt: z.number(),
+  lastRunAt: z.number().optional(),
+  lastStatus: z.enum(["ok", "failed"]).optional(),
+  lastMessage: z.string().optional(),
+});
+export type Schedule = z.infer<typeof ScheduleSchema>;
+
 export interface SecurityContext {
   repo: string;
   files: string[];

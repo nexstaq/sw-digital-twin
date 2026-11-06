@@ -1,7 +1,7 @@
 import type { TwinGraph } from "@/lib/graph/types";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
-import type { DomainEntry, FindingSet } from "@/lib/security/types";
+import type { DomainEntry, FindingSet, Schedule } from "@/lib/security/types";
 import type { Share } from "@/lib/share/token";
 
 export interface SnapshotMeta { sha: string; committedAt?: string; createdAt: number }
@@ -30,6 +30,11 @@ export interface Persist {
   /** domains maintainers asked us to test, with their ownership proof (the token is public by design) */
   getDomains(repo: string): Promise<DomainEntry[]>;
   putDomains(repo: string, domains: DomainEntry[]): Promise<void>;
+  /** automatic re-scan settings; null removes the schedule */
+  getSchedule(repo: string): Promise<Schedule | null>;
+  putSchedule(repo: string, schedule: Schedule | null): Promise<void>;
+  /** every repo that has a schedule, for the cron job */
+  listSchedules(): Promise<{ repo: string; schedule: Schedule }[]>;
   /** read-only share links; only hashes are stored */
   listShares(repo: string): Promise<Share[]>;
   addShare(repo: string, share: Share): Promise<void>;

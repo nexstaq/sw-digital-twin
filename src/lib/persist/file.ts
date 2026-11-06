@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
-import type { DomainEntry, FindingSet } from "@/lib/security/types";
+import type { DomainEntry, FindingSet, Schedule } from "@/lib/security/types";
 import type { Share } from "@/lib/share/token";
 import { mergeBuckets } from "./memory";
 import type { Persist, Snapshot, SnapshotMeta } from "./types";
@@ -24,6 +24,18 @@ export function filePersist(root = path.join(/*turbopackIgnore: true*/ process.c
   };
   const sharesFile = (repo: string) => path.join(/*turbopackIgnore: true*/ dir(repo), "shares.json");
   return {
+    async getSchedule(repo) { return readJson<Schedule | null>(path.join(/*turbopackIgnore: true*/ dir(repo), "schedule.json"), null); },
+    async putSchedule(repo, s) { await writeJson(path.join(/*turbopackIgnore: true*/ dir(repo), "schedule.json"), s); },
+    async listSchedules() {
+      let names: string[] = [];
+      try { names = await readdir(root); } catch { return []; }
+      const out: { repo: string; schedule: Schedule }[] = [];
+      for (const n of names) {
+        const schedule = await readJson<Schedule | null>(path.join(/*turbopackIgnore: true*/ root, n, "schedule.json"), null);
+        if (schedule) out.push({ repo: n.replace("__", "/"), schedule });
+      }
+      return out;
+    },
     async getDomains(repo) { return readJson<DomainEntry[]>(path.join(/*turbopackIgnore: true*/ dir(repo), "domains.json"), []); },
     async putDomains(repo, d) { await writeJson(path.join(/*turbopackIgnore: true*/ dir(repo), "domains.json"), d); },
     async getFindings(repo) { return readJson<FindingSet | null>(path.join(/*turbopackIgnore: true*/ dir(repo), "findings.json"), null); },

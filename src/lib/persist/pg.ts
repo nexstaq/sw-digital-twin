@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import type { Overrides } from "@/lib/graph/overrides";
 import type { RuntimeBucket } from "@/lib/health/signals";
-import type { DomainEntry, FindingSet } from "@/lib/security/types";
+import type { DomainEntry, FindingSet, Schedule } from "@/lib/security/types";
 import type { Share } from "@/lib/share/token";
 import { mergeBuckets } from "./memory";
 import { RETENTION_MS, type Persist, type Snapshot, type SnapshotMeta } from "./types";
@@ -32,6 +32,7 @@ export function ddl(schema: string): string[] {
        PRIMARY KEY (repo, sha))`,
     `CREATE TABLE IF NOT EXISTS ${s}.mappings (repo text PRIMARY KEY, mappings jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.domains (repo text PRIMARY KEY, data jsonb NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ${s}.schedules (repo text PRIMARY KEY, data jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.findings (repo text PRIMARY KEY, data jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.overrides (repo text PRIMARY KEY, overrides jsonb NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ${s}.shares (
@@ -59,6 +60,21 @@ export function pgPersist(sql: Sql, schema = "twin"): Persist {
   const k = (repo: string) => repo.toLowerCase();
 
   return {
+    async getSchedule(repo) {
+      await init();
+      const r = await sql(`SELECT data FROM ${t("schedules")} WHERE repo = $1`, [k(repo)]);
+      return (r[0]?.data as Schedule | undefined) ?? null;
+    },
+    async putSchedule(repo, sc) {
+      await init();
+      if (!sc) { await sql(`DELETE FROM ${t("schedules")} WHERE repo = $1`, [k(repo)]); return; }
+      await sql(`INSERT INTO ${t("schedules")} (repo, data) VALUES ($1, $2::jsonb) ON CONFLICT (repo) DO UPDATE SET data = EXCLUDED.data`, [k(repo), JSON.stringify(sc)]);
+    },
+    async listSchedules() {
+      await init();
+      const r = await sql(`SELECT repo, data FROM ${t("schedules")} ORDER BY repo`);
+      return r.map((x) => ({ repo: String(x.repo), schedule: x.data as Schedule }));
+    },
     async getDomains(repo) {
       await init();
       const r = await sql(`SELECT data FROM ${t("domains")} WHERE repo = $1`, [k(repo)]);

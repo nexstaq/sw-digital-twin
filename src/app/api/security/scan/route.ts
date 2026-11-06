@@ -1,12 +1,8 @@
 import { authorizeRepo, withSetCookie } from "@/lib/auth/viewer";
-import { cloneRepo, gitHead, parseRepo } from "@/lib/ingest/repo";
-import { persist } from "@/lib/persist";
+import { parseRepo } from "@/lib/ingest/repo";
 import { denyBots } from "@/lib/security/bot";
 import { LIMITS, rateLimit, tooMany } from "@/lib/security/ratelimit";
-import { combine } from "@/lib/security/external";
-import { fetchGithubAlerts } from "@/lib/security/github-alerts";
-import { analyzeDirectory } from "@/lib/security/scan";
-import { withHistory } from "@/lib/security/trend";
+import { scanAndStore } from "@/lib/security/run-scan";
 
 export const maxDuration = 120;
 
@@ -32,26 +28,12 @@ export async function POST(req: Request) {
   if (inFlight >= MAX_CONCURRENT) return Response.json({ error: "The scanner is busy. Try again in a moment." }, { status: 429, headers: NO_STORE });
 
   inFlight++;
-  let checkout: Awaited<ReturnType<typeof cloneRepo>> | undefined;
   try {
-    checkout = await cloneRepo(parseRepo(repo), req.signal, a.token);
-    const sha = (checkout.head ?? (await gitHead(checkout.dir)))?.sha ?? checkout.sha;
-    // the saved map tells us which files are request handlers, for the exposure check behind attack paths
-    const store = persist();
-    const latest = (await store.listSnapshots(repo)).at(-1);
-    const map = latest && (await store.getSnapshot(repo, latest.sha));
-    const endpointFiles = map ? [...new Set(map.graph.nodes.filter((n) => n.kind === "endpoint").flatMap((n) => n.evidence.map((e) => e.path)))] : [];
-    const previous = await store.getFindings(repo);
-    const fresh = await analyzeDirectory(checkout.dir, repo, sha, {}, { endpointFiles });
-    // GitHub's own alerts (Dependabot, code scanning, secret scanning), each reporting whether it worked; reports imported from CI are kept
-    const alerts = await fetchGithubAlerts(repo, a.token, fresh.findings);
-    const set = withHistory(combine(fresh, previous, alerts), previous);
-    await store.putFindings(repo, set);
+    const set = await scanAndStore(repo, a.token, req.signal);
     return withSetCookie(Response.json(set, { headers: NO_STORE }), a.setCookie);
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "The security scan failed." }, { status: 502, headers: NO_STORE });
   } finally {
     inFlight--;
-    await checkout?.cleanup();
   }
 }

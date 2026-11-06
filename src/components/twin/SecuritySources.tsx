@@ -6,6 +6,7 @@ import { ciWorkflow } from "@/lib/security/ci";
 import { MAX_SARIF_BYTES } from "@/lib/security/sarif-import";
 import type { FindingSet } from "@/lib/security/types";
 import { PassiveChecks } from "./PassiveChecks";
+import { ScheduledScans } from "./ScheduledScans";
 import { sourceLabel } from "./securityUi";
 
 const when = (t?: number) => (t ? new Date(t).toLocaleString() : "");
@@ -75,6 +76,7 @@ export function SecuritySources({ repo, set, onImported }: { repo: string; set: 
       {msg && <p role={msg.ok ? "status" : "alert"} className={`mt-1.5 text-[11px] leading-snug ${msg.ok ? "text-nominal" : "text-failing"}`}>{msg.text}</p>}
 
       <PassiveChecks repo={repo} onChanged={onImported} />
+      <ScheduledScans repo={repo} onChanged={onImported} />
 
       {showCi && (
         <div className="mt-3 space-y-2 text-[11px] leading-snug text-ink-dim" aria-label="Live testing in your CI">
