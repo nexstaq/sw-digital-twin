@@ -12,9 +12,11 @@ const Body = z.object({ overrides: OverridesSchema });
 export async function GET(req: Request) {
   let repo: string;
   try { repo = slugOf(new URL(req.url).searchParams.get("repo")); } catch (e) { return Response.json({ error: (e as Error).message }, { status: 400 }); }
-  const a = await authorizeRepo(req, repo);
+  const a = await authorizeRepo(req, repo, { view: "map" });
   if (!a.ok) return Response.json({ error: a.message }, { status: a.status });
-  return withSetCookie(Response.json({ overrides: await persist().getOverrides(repo), canEdit: !!a.access?.push }), a.setCookie);
+  // a public repo is read without asking GitHub what the person may do, so for a signed-in person ask now: maintainers of public repos need their buttons too
+  const canEdit = a.access ? a.access.push : a.login ? (await authorizeRepo(req, repo, { need: "push" })).ok : false;
+  return withSetCookie(Response.json({ overrides: await persist().getOverrides(repo), canEdit }), a.setCookie);
 }
 
 export async function PUT(req: Request) {
