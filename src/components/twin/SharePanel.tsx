@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Check, Copy, Link2, Trash2 } from "lucide-react";
+import { embedSnippet } from "@/lib/share/embed";
 
 interface Row { id: string; label?: string; createdBy: string; createdAt: number; revokedAt?: number }
-interface Created { url: string; badge: string }
+interface Created { url: string; badge: string; embed: string }
 
 /** Read-only links (and a badge) that work without signing in. Only for people with push access. The link is shown once. */
 export function SharePanel({ repo }: { repo: string }) {
@@ -29,7 +30,7 @@ export function SharePanel({ repo }: { repo: string }) {
       const r = await fetch(q, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ label: label.trim() || undefined }) });
       const d = (await r.json()) as Created & { error?: string };
       if (!r.ok) throw new Error(d.error ?? "Could not create the link.");
-      setMade({ url: d.url, badge: d.badge }); setLabel(""); await load();
+      setMade({ url: d.url, badge: d.badge, embed: d.embed }); setLabel(""); await load();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not create the link."); } finally { setBusy(false); }
   };
   const revoke = async (id: string) => {
@@ -53,6 +54,7 @@ export function SharePanel({ repo }: { repo: string }) {
               <p className="font-medium text-ink">Copy it now. It won&apos;t be shown again.</p>
               <button onClick={() => copy(made.url, "link")} className="flex w-full items-center gap-1.5 truncate rounded bg-raised px-2 py-1 text-left font-mono text-[11px]">{copied === "link" ? <Check size={12} /> : <Copy size={12} />}<span className="truncate">{made.url}</span></button>
               <button onClick={() => copy(`![launch status](${made.badge})`, "badge")} className="flex w-full items-center gap-1.5 rounded bg-raised px-2 py-1 text-left">{copied === "badge" ? <Check size={12} /> : <Copy size={12} />} Copy README badge (Markdown)</button>
+              <button onClick={() => copy(embedSnippet(made.embed), "embed")} className="flex w-full items-center gap-1.5 rounded bg-raised px-2 py-1 text-left">{copied === "embed" ? <Check size={12} /> : <Copy size={12} />} Copy status card (iframe HTML)</button>
             </div>
           )}
           <form onSubmit={(e) => { e.preventDefault(); void create(); }} className="flex gap-1.5">

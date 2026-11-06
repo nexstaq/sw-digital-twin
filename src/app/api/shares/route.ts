@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   await store.addShare(g.repo, share);
   const [owner, name] = g.repo.split("/");
   const url = `${appOrigin(req)}/s/${owner}/${name}/${secret}`;
-  return withSetCookie(Response.json({ share: strip(share), url, badge: `${appOrigin(req)}/api/badge/${owner}/${name}?t=${secret}` }, { status: 201, headers: { "cache-control": "no-store" } }), g.a.setCookie);
+  return withSetCookie(Response.json({ share: strip(share), url, badge: `${appOrigin(req)}/api/badge/${owner}/${name}?t=${secret}`, embed: `${appOrigin(req)}/embed/${owner}/${name}?t=${secret}` }, { status: 201, headers: { "cache-control": "no-store" } }), g.a.setCookie);
 }
 
 export async function DELETE(req: Request) {

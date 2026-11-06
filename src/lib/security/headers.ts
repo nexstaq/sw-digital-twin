@@ -12,8 +12,8 @@ function githubOrigin(): string {
   try { return new URL(process.env.GITHUB_WEB_URL || "https://github.com").origin; } catch { return "https://github.com"; }
 }
 
-export function securityHeaders(prod: boolean, o: { embeddable?: boolean; /** a static document that needs no scripts at all (the security report) */ locked?: boolean } = {}): Header[] {
-  const csp = o.locked ? "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" : [
+export function securityHeaders(prod: boolean, o: { embeddable?: boolean; /** a script-free page any site may put in an iframe (the status embed) */ framable?: boolean; /** a static document that needs no scripts at all (the security report) */ locked?: boolean } = {}): Header[] {
+  const csp = o.framable ? "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors *" : o.locked ? "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" : [
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline'${prod ? "" : " 'unsafe-eval'"}`, // dev only: React uses eval for readable stack traces
     "style-src 'self' 'unsafe-inline'", // React Flow and Framer Motion set inline styles
@@ -32,11 +32,11 @@ export function securityHeaders(prod: boolean, o: { embeddable?: boolean; /** a 
     { key: "Content-Security-Policy", value: csp },
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-    { key: "X-Frame-Options", value: "DENY" }, // older browsers that ignore frame-ancestors
+    ...(o.framable ? [] : [{ key: "X-Frame-Options", value: "DENY" }]), // older browsers that ignore frame-ancestors
     { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" },
     { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
     // an embeddable image (the badge) must be loadable from other sites; nothing else is
-    { key: "Cross-Origin-Resource-Policy", value: o.embeddable ? "cross-origin" : "same-origin" },
+    { key: "Cross-Origin-Resource-Policy", value: o.embeddable || o.framable ? "cross-origin" : "same-origin" },
     ...(prod ? [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" }] : []),
   ];
 }

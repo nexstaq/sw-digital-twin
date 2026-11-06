@@ -9,7 +9,7 @@ nonce-based CSP would remove it but forces every page to render per request, und
 the policy still blocks: `eval` in production, plugins, foreign script/connect/frame origins, `<base>` and form hijacking,
 and being framed. Revisit if the landing page becomes dynamic anyway.
 
-**Embeds (P7):** badge and embed routes must override `frame-ancestors` and `Cross-Origin-Resource-Policy` for themselves
+**Embeds (P7):** badge and embed routes override `frame-ancestors` and `Cross-Origin-Resource-Policy` for themselves
 only. Everything else stays locked.
 
 Verified on a production build in Chromium: `/`, `/repos`, `/demo`, `/demo/incident`, `/design`, `/scan` render with zero
@@ -41,7 +41,12 @@ Request review), and report a false positive at `safebrowsing.google.com/safebro
   cross-origin`); token-bearing badges are `private` cached so a CDN cannot hand them to someone without the token.
 - **Overrides** (rename, re-describe, hide) are keyed by node id, applied after every scan, and stored per repo. Hidden nodes stay
   listed in a "hidden" menu so they can be restored.
-- **Not yet.** Share views show GitHub-derived health only (no Sentry/OTLP runtime layer), and there is no iframe embed.
+- **Status card embed** `/embed/<owner>/<repo>[?t=<secret>]` is an HTML card for an `<iframe>` (the share panel copies the snippet): the
+  GO / HOLD / NO-GO word, the one-line reason, and the top-level parts with a glyph each. It is the **only** page other sites may frame
+  (`frame-ancestors *`, no `X-Frame-Options`); it is served with `default-src 'none'`, so no script, font, image or request can run in it,
+  and every label is escaped. Same no-probing rule as the badge: private, unmapped and wrong-token all say "Unavailable". A card with a
+  secret is `private`-cached. Every other page still answers `frame-ancestors 'none'`.
+- **Not yet.** Share views show GitHub-derived health only (no Sentry/OTLP runtime layer), and the embed does not refresh by itself (reload the frame).
 
 ## BotID (P7)
 `/api/scan` (clones a repo) and `/api/ask` (spends model tokens) call `denyBots()` (`src/lib/security/bot.ts`), which uses Vercel

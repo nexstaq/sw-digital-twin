@@ -18,7 +18,9 @@ const nextConfig: NextConfig = {
       { source: "/api/badge/:owner/:repo", headers: securityHeaders(prod, { embeddable: true }) },
       // the report is a static document: no scripts are allowed to run in it, whatever the findings contain
       { source: "/api/security/report", headers: securityHeaders(prod, { locked: true }) },
-      { source: "/((?!api/badge/|api/security/report).*)", headers: securityHeaders(prod) },
+      // the status card is the one page other sites may frame: no scripts, no resources, nothing but text
+      { source: "/embed/:owner/:repo", headers: securityHeaders(prod, { framable: true }) },
+      { source: "/((?!api/badge/|api/security/report|embed/).*)", headers: securityHeaders(prod) },
     ];
   },
   partialPrefetching: true,
