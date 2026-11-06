@@ -142,10 +142,12 @@ describe("collect (gated)", () => {
   });
   it("combines pulled and pushed signals and isolates a failing connector", async () => {
     const store = memoryPersist();
-    await store.putBuckets("acme/shop", [{ source: "otlp", key: "api", ts: NOW - 300_000, errors: 1, requests: 50, p95Ms: 40 }]);
+    // the store drops telemetry older than its retention window, measured against the real clock, so this must not use the fixed NOW
+    const nowReal = Date.now();
+    await store.putBuckets("acme/shop", [{ source: "otlp", key: "api", ts: nowReal - 300_000, errors: 1, requests: 50, p95Ms: 40 }]);
     const e = env({ CONNECTOR_REPOS: "acme/shop", SENTRY_AUTH_TOKEN: "tok", SENTRY_ORG: "acme", VERCEL_TOKEN: "v", VERCEL_PROJECT_ID: "p", OTLP_INGEST_KEY: "k" });
     const f = vi.fn(async (url: string | URL | Request, init?: RequestInit) => String(url).includes("vercel") ? new Response("x", { status: 500 }) : (sentryMock() as unknown as (u: unknown, i: unknown) => Promise<Response>)(url, init)) as unknown as typeof fetch;
-    const c = await collect("acme/shop", { env: e, fetch: f, store, now: NOW });
+    const c = await collect("acme/shop", { env: e, fetch: f, store, now: nowReal });
     expect(c.status.find((s) => s.id === "sentry")!.state).toBe("ok");
     expect(c.status.find((s) => s.id === "vercel")!.state).toBe("error");
     expect(c.status.find((s) => s.id === "otlp")!.state).toBe("ok");
