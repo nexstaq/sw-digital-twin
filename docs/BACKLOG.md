@@ -51,6 +51,7 @@ Other docs describe how things work today; they should not carry their own to-do
 | B33 | Real-site tests with credentials (object-level access, sessions, mass assignment) | Needs a design for handling real secrets that are never stored or logged. Today the agent takes none |
 | B34 | Detect IDOR, missing authorisation and mass assignment in code, in the built-in scanner | Without an imported report the range has none of these and the gray-box agent finds none |
 | B35 | Use the application's real access policy instead of path conventions (admin under `/admin`, writes need a sign-in, ids addressing objects) | The model is an assumption, labelled as one |
+| B36 | A dedicated reachability/crown-jewel screen (the path graph drawn on the map, not just the notes list and per-finding badge) | X6 surfaces its summary sentence and per-finding verdicts only; no graphical view of the reachability paths yet |
 
 ## Quality and verification
 

@@ -40,9 +40,20 @@ test.describe("verify by simulation", () => {
     await scanVault(page);
     const before = await gradeLabel(page);
     const sim = await verify(page, { source: true });
-    await expect(sim).toContainText(/4 confirmed/);
+    // 4 from reading the code with knowledge of the findings (white-box), 2 more from the red-team agent's reachability
+    // check of the pipeline (it needs no source and no prior knowledge, so it runs the same either way)
+    await expect(sim).toContainText(/6 confirmed/);
     await expect(sim).toContainText(/1 look mitigated/);
     await expect(sim).toContainText("Source was read");
+
+    // the pipeline an outsider's pull request can trigger: found by the red-team agent, from the public surface alone
+    await posture(page).getByRole("button", { name: /^Pipelines \d/ }).click();
+    await posture(page).getByRole("button", { name: /pull_request_target checks out untrusted/ }).click();
+    const rt = panel(page).getByRole("region", { name: "Simulation" });
+    await expect(rt).toContainText("Confirmed by simulation");
+    await expect(panel(page)).toContainText("reachability checked from the public surface, with no credentials");
+    await expect(panel(page)).toContainText("Reachable with no credentials");
+    await panel(page).getByRole("button", { name: "Close finding" }).click();
 
     await codeOnly(page);
     // the real SQL injection, on the open write route: confirmed with high confidence

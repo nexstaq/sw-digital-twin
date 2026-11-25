@@ -1,6 +1,6 @@
 # Simulation and adversary emulation: spec, threat model, rules of engagement (X0)
 
-Status: **X0 to X5 done.** `src/lib/sim/` has the rules of engagement, scope guard and audit log (X0), the range (`range/`, X1) the simulator behind the Simulate lens (`simulate/`, X2, with `src/components/twin/SimulatePanel.tsx`) the agent runtime (`agent/`, X3) the white-box agent (`whitebox/`, X4) and the gray-box agent (`graybox/`, X5), both behind the Security page's "Verify by simulation". **The red-team agent (X6), an approval screen and the app-side wiring of real-site testing do not exist yet.**
+Status: **X0 to X6 done.** `src/lib/sim/` has the rules of engagement, scope guard and audit log (X0), the range (`range/`, X1) the simulator behind the Simulate lens (`simulate/`, X2, with `src/components/twin/SimulatePanel.tsx`) the agent runtime (`agent/`, X3), and all three bounded agents — white-box (X4), gray-box (X5) and red-team (X6) — behind the Security page's "Verify by simulation". **An approval screen and the app-side wiring of real-site testing (the gray-box agent's `probeDomain`) do not exist yet.**
 Everything below that says "must" is a requirement on a later prompt (X6 to X10, see `PROMPTS-SIM.md`), not a description of working behaviour.
 The decision behind it is `docs/adr/0001-simulation-boundary.md`.
 
@@ -275,6 +275,24 @@ credentials (object-level access, sessions, mass assignment) needs a design for 
 **Not done.** The real-site probe is not callable from the app: it needs an approval screen and a stored domain flow (X8, B32). The scanner still cannot detect these weaknesses itself (B34); without an imported report the range has none, and the agent finds none. Who is an admin, who owns what
 and which routes are sign-ins is a path-based assumption, not your real policy (B35). Object ownership is synthetic (odd ids). "Reaches" does not apply here. Tested on the fixture and purpose-built graphs, not on a real repository on GitHub (B31).
 
+## X6: the red-team agent (`src/lib/sim/redteam/`): crown-jewel reachability, not a staged attack
+
+**What it answers.** One question, deterministically, with no model: starting from nothing but the public surface of the range (it calls as `anonymous` only — `ROLES_FOR.redteam`), is there *any* way at all to reach the crown jewels (the data stores a map's `crown` markers protect), and how likely is that given what the scanner and imported reports found? This is a reachability check over the same modelled weaknesses X1, X4 and X5 already built, not a new kind of attack or a staged multi-stage campaign: it tries every payload class the range understands on every public route, and separately whether a pipeline can be triggered by an outsider's pull request, through the same guarded path (X3) every agent uses — checked, logged, counted.
+
+**Two surfaces, both bounded and deterministic:**
+- *Web.* For each public route, one baseline anonymous call (catches an open write with no payload at all) plus every modelled payload class (`sqli`, `cmdi`, `code-injection`, `path-traversal`, `ssrf`, `xss`, `open-redirect`), all as `anonymous`. A successful exploit already carries its full dependency chain and any crown markers reached (X1's `visit()` walks that in one call), so a single confirmed exploit can itself be a complete path to a crown jewel.
+- *Pipeline.* A new tool, `range_trigger`, tries one workflow block as if an outside contributor's pull request had triggered it — **fixed to that one trigger**: its schema has no `trigger` field, so it cannot be asked to run a push or an approved run (tested). If the pipeline weakness is reachable and it deploys somewhere, a second new tool, `range_flow` (the same read-only trace the Simulate lens already uses, now returning crown markers too), shows what the software that gets deployed there could, by its own *ordinary* dependencies, already reach — that capability is **inherited from the map**, never invented by this agent.
+
+**Crown jewels** are exactly the `crown` markers X1 already puts on data stores; this prompt's "secrets-holding environment" is not a concept the schema has, so it is not invented here — an honest gap, not a silent one.
+
+**What it can and cannot say.** Like the other two agents, this reproduces what the scanner's and imported findings already claim; it does not discover a new weakness. What it adds is a single answer to "how exposed are the crown jewels to someone with nothing at all": a reachability count and a likelihood (`none`/`low`/`medium`/`high`, from how many *distinct* entry points reach a crown jewel), with the exact path and the audit-log evidence for each. A "success" is the range's own harmless marker; nothing here is wired to a real network, and X9 (any real target) does not touch this agent.
+
+**Verdicts and the app.** Findings a path actually reached get `by: "redteam"`, confidence `medium` only if a crown jewel was reached, else `low`. Where more than one agent speaks about the same finding, precedence is white-box (reads code) then gray-box (has credentials) then red-team (has neither) — tested. "Verify by simulation" now runs all three; a failure in any one still keeps the other two's results, and says so. The aggregate reachability sentence ("N of M crown jewels reached, *likelihood*, via K distinct entry points") surfaces through the existing notes list, no new UI needed.
+
+**Found by running it, on the real `acme/vault` e2e fixture, not invented:** a pipeline weakness (`pull_request_target` checking out untrusted code) that neither the white-box agent (no payload, no `no-auth` kind) nor the gray-box agent (not an access-control kind) ever exercises was, correctly, picked up here — raising the fixture's confirmed count from 4 to 6. That is new, legitimate coverage, not a regression, and the e2e test was updated to expect it.
+
+**Not done.** It only tries the payload classes and the one pipeline trigger X1–X5 already model; it invents no new exploit technique. The pipeline-to-crown-jewel chain needs a service that deploys to the same environment as the vulnerable workflow — absent that (the common case today), the weakness is still confirmed but at `low` confidence with no crown reach. Not run against a real repository on GitHub, only fixtures (B31, shared with X4/X5). No UI beyond the existing notes list and per-finding badge (B36).
+
 ## Threat model of this feature
 
 STRIDE plus abuse cases. "Done" means a test exists in X0. Everything else names the prompt that must deliver the test before an agent ships.
@@ -295,7 +313,7 @@ STRIDE plus abuse cases. "Done" means a test exists in X0. Everything else names
 | 12 | **Stale authority** | A domain changes hands; yesterday's approval is replayed | Ownership re-proved every run; approval must precede a window of at most 24 h | Done: ownership tests |
 | 13 | **Agent escalates itself** | A tool writes the ROE, state, or an approval flag | Those live outside every agent tool; ceilings are constants in code | Done (X3): a tool gets only a frozen abort signal; changing the caller's own ROE object from inside a tool buys nothing; proofs come only from the runtime |
 | 14 | **Kill switch fails** | Run keeps going, sandbox stays up | `killed` is checked first; the runtime must set it and tear down | Done (X3): kills mid-call, a hung tool, and a call already in the model's reply; teardown runs once; only that repository's runs stop |
-| 15 | **Our output becomes a weapon** | Reports or "proofs" that work against real third-party software | Proofs are harmless markers against the range; white-box tests run on the range only; no working exploit code for real software in outputs | X4/X6: review of PoC format; X10: output review |
+| 15 | **Our output becomes a weapon** | Reports or "proofs" that work against real third-party software | Proofs are harmless markers against the range; all three agents (white-box, gray-box, red-team) work on the range only, by payload CLASS never free-text exploit code; no working exploit against real software in any output | Done (X4–X6): tested with canaries that no real exploit string or secret appears in paths, verdicts or the log. X10: independent output review |
 
 ## Tests that must exist before any agent ships
 | Test | Status |
@@ -312,4 +330,4 @@ STRIDE plus abuse cases. "Done" means a test exists in X0. Everything else names
 | Evals with zero scope violations; sandbox egress, redirect and rebinding attempts | X10 |
 
 ## Not built (so no one assumes it is)
-Two agents (white-box and gray-box, no model) are wired to the app; real-site probing exists only as a library function. No red-team agent, no approval screen, no stored log heads beyond the head recorded on each verdict, no ROE creation flow for real targets, no real network transport, no real-model evaluation. The model runtime is tested with scripted models only.
+All three range-only agents (white-box, gray-box, red-team; none use a model) are wired to the app; real-site probing (the gray-box agent's `probeDomain`) exists only as a library function. No approval screen, no stored log heads beyond the head recorded on each verdict, no ROE creation flow for real targets, no real network transport for the red-team or white-box agents, no real-model evaluation. The model runtime (X3) is tested with scripted models only; the three agents themselves use no model at all.

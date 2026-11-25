@@ -123,7 +123,8 @@ export function startRange(spec: RangeSpec, opts: { maxEvents?: number } = {}): 
     if (!emus.has(entry)) throw new Error(`unknown node: ${entry}`);
     const ctx: Ctx = { traceId: newTrace(), visited: new Set(), reached: [] };
     const r = visit(entry, undefined, undefined, 0, ctx);
-    return { ok: r.ok, traceId: ctx.traceId, ms: r.ms, visited: [...ctx.visited], reached: ctx.reached, ...(ctx.failedAt ? { failedAt: ctx.failedAt } : {}) };
+    const crown = ctx.reached.map((id) => crowns.get(id)).filter((c): c is string => !!c);
+    return { ok: r.ok, traceId: ctx.traceId, ms: r.ms, visited: [...ctx.visited], reached: ctx.reached, ...(ctx.failedAt ? { failedAt: ctx.failedAt } : {}), ...(crown.length ? { crown } : {}) };
   }
 
   const byPath = [...spec.endpoints].sort((a, b) => b.segments.filter((s) => !isParam(s)).length - a.segments.filter((s) => !isParam(s)).length || a.nodeId.localeCompare(b.nodeId));

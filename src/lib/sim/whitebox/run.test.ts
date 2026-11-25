@@ -107,7 +107,7 @@ describe("the patch, made again on request", () => {
   });
 });
 
-describe("the white-box and gray-box agents together", () => {
+describe("the white-box, gray-box and red-team agents together", () => {
   const ACCESS = [reported("f_idor", "CWE-639", "api/src/order.ts"), reported("f_authz", "CWE-862", "api/src/admin-stats.ts"), reported("f_rate", "CWE-307", "api/src/login.ts")];
   async function both(over: Partial<SimDeps> = {}) {
     const s = shopFindings();
@@ -151,10 +151,35 @@ describe("the white-box and gray-box agents together", () => {
     expect(x.stored().simulated!.notes.join(" ")).toMatch(/access-control tests could not run/);
     expect(x.stored().simulated!.graybox).toBeUndefined();
   });
-  it("the counts add up across both agents", async () => {
+  it("the counts add up across all three agents", async () => {
     const x = await both();
     const verdicts = x.stored().findings.map((f) => f.simulation?.verdict).filter(Boolean);
     const total = Object.values(x.stored().simulated!.counts).reduce((a, b) => a + b, 0);
     expect(total).toBe(verdicts.length);
+  });
+
+  it("the red-team agent gives a verdict the other two never would: a pipeline an outsider could trigger", async () => {
+    const x = await both(); // shopFindings() already seeds f6, GHA/pwn-request, which neither white- nor gray-box exercises
+    expect(x.stored().findings.find((f) => f.id === "f6")!.simulation).toMatchObject({ by: "redteam", verdict: "confirmed" });
+  });
+  it("its own run keeps its own audit log head, distinct from the other two", async () => {
+    const x = await both();
+    const sim = x.stored().simulated!;
+    expect(sim.redteam!.head).toMatch(/^[0-9a-f]{64}$/);
+    expect(sim.redteam!.runId).toMatch(/^rt_/);
+    expect(new Set([sim.head, sim.graybox!.head, sim.redteam!.head]).size).toBe(3);
+  });
+  it("if it fails, the other two results are still stored, and the failure is said", async () => {
+    const x = await both({ redteam: (async () => { throw new Error("boom"); }) as never });
+    expect(x.out.ok).toBe(true);
+    expect(x.stored().findings.find((f) => f.id === "f1")!.simulation).toMatchObject({ by: "whitebox" });
+    expect(x.stored().findings.find((f) => f.id === "f6")!.simulation).toBeUndefined();
+    expect(x.stored().simulated!.notes.join(" ")).toMatch(/reachability check could not run/);
+    expect(x.stored().simulated!.redteam).toBeUndefined();
+  });
+  it("where it overlaps with gray-box (an access-control weakness also seeded on an unauthenticated route), the credentialed agent's verdict stands", async () => {
+    const x = await both();
+    // f2 (the open admin route) is reachable anonymously by both the white-box baseline and the red-team agent; white-box wins
+    expect(x.stored().findings.find((f) => f.id === "f2")!.simulation!.by).toBe("whitebox");
   });
 });

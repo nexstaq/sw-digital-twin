@@ -167,6 +167,8 @@ export interface FlowResult {
   /** datastores, external services, queues and environments that were reached and answered */
   reached: string[];
   failedAt?: string;
+  /** crown markers of datastores among `reached` */
+  crown?: string[];
 }
 
 export interface WorkflowResult {

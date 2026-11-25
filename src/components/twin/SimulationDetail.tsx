@@ -29,7 +29,9 @@ export function SimulationDetail({ f, repo }: { f: Finding; repo: string }) {
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-[11px] font-medium uppercase tracking-wider text-ink-faint">Simulation</h3>
         <SimBadge sim={s} />
-        <span className="text-[10.5px] text-ink-faint">{s.by === "graybox" ? "tested from the outside, with an account" : "tested with knowledge of the findings"}</span>
+        <span className="text-[10.5px] text-ink-faint">
+          {s.by === "graybox" ? "tested from the outside, with an account" : s.by === "redteam" ? "reachability checked from the public surface, with no credentials" : "tested with knowledge of the findings"}
+        </span>
       </div>
       <p className="leading-relaxed text-ink">{s.summary}</p>
       {s.reaches.length > 0 && <p className="text-xs text-ink-dim"><span className="text-ink">Reaches:</span> {s.reaches.join(", ")}</p>}

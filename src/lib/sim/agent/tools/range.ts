@@ -49,8 +49,52 @@ export function requestTool(o: { range: RangeInstance; spec: RangeSpec; /** the 
   });
 }
 
+/**
+ * Attempt one workflow as an outside contributor's pull request (never as a push or a reviewed PR: those are not an outsider's
+ * doing). Fixed to that one trigger, so the tool itself cannot be asked to run a legitimate deploy. Read-only in effect against
+ * anything real: it is the range replaying its own seeded weaknesses, never a live CI system.
+ */
+export function triggerTool(o: { range: RangeInstance; spec: RangeSpec }) {
+  return defineTool({
+    name: "range_trigger",
+    description: "Try to run one workflow block as if a pull request from an outside contributor had triggered it, to see whether the pipeline can be abused by someone with no access. Always the outsider-PR trigger; never a push or an approved run. You must name the ATT&CK technique.",
+    inputSchema: z.strictObject({ workflowId: z.string().max(300), technique: techniqueId }),
+    classOf: () => "exploit-range",
+    techniqueOf: (i) => i.technique,
+    targetOf: () => ({ kind: "range" as const, rangeId: o.spec.id }),
+    source: "range-response",
+    summarize: (out: { conclusion: string; proofs: string[] }) => `${out.conclusion}, ${out.proofs.length} proof(s)`,
+    run: async (i) => {
+      const w = o.range.runWorkflow(i.workflowId, { trigger: "outsider-pr" });
+      return { conclusion: w.conclusion, deploys: w.deploys.map((d) => ({ envId: d.envId, state: d.state })), proofs: w.proofs };
+    },
+  });
+}
+
+/**
+ * Traces what one block can reach by its own, ordinary dependencies (the same thing the Simulate lens shows). Read-only: it never
+ * sends an exploit, it only follows edges the map already has. Used after a seeded pipeline weakness to show what the software that
+ * gets deployed could, by design, already reach: that capability is inherited, not newly created by this tool.
+ */
+export function flowTool(o: { range: RangeInstance; spec: RangeSpec }) {
+  return defineTool({
+    name: "range_flow",
+    description: "Trace what one block of the range can reach through its own normal dependencies. Read-only; names no technique.",
+    inputSchema: z.strictObject({ nodeId: z.string().max(300) }),
+    classOf: () => "observe",
+    techniqueOf: () => undefined,
+    targetOf: () => ({ kind: "range" as const, rangeId: o.spec.id }),
+    source: "range-response",
+    summarize: (out: { ok: boolean; reached: string[]; crown: string[] }) => `${out.ok ? "ok" : "failed"}, reaches ${out.reached.length} block(s)`,
+    run: async (i) => {
+      const f = o.range.flow(i.nodeId);
+      return { ok: f.ok, reached: f.reached, crown: f.crown ?? [] };
+    },
+  });
+}
+
 export const ROLES_FOR: Record<"whitebox" | "graybox" | "redteam", readonly Role[]> = {
   whitebox: ROLES,
   graybox: ROLES, // one set of range credentials per role: anonymous, user and admin
-  redteam: ["anonymous"],
+  redteam: ["anonymous"], // starts with only the public surface
 };

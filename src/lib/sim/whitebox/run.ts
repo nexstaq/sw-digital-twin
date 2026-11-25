@@ -4,6 +4,7 @@ import { fetchExcerpt } from "@/lib/security/excerpt";
 import type { Finding, FindingSet } from "@/lib/security/types";
 import type { Simulation } from "@/lib/security/types";
 import { discoverAccess } from "../graybox/agent";
+import { discoverReachability } from "../redteam/agent";
 import { applySimulations, verifyFindings } from "./agent";
 import { proposePatch, validateDiff, type Excerpt } from "./source";
 
@@ -15,7 +16,12 @@ import { proposePatch, validateDiff, type Excerpt } from "./source";
 
 export type SimulateOutcome = { ok: true; set: FindingSet } | { ok: false; status: 409 | 500; error: string };
 
-export interface SimDeps { store?: Pick<Persist, "getFindings" | "putFindings" | "listSnapshots" | "getSnapshot">; excerpt?: typeof fetchExcerpt; now?: () => number; /** test seam: the gray-box agent */ graybox?: typeof discoverAccess }
+export interface SimDeps {
+  store?: Pick<Persist, "getFindings" | "putFindings" | "listSnapshots" | "getSnapshot">; excerpt?: typeof fetchExcerpt; now?: () => number;
+  /** test seams for the other two agents */
+  graybox?: typeof discoverAccess;
+  redteam?: typeof discoverReachability;
+}
 
 export async function simulateAndStore(repo: string, token: string | undefined, o: { source: boolean; signal?: AbortSignal; deps?: SimDeps }): Promise<SimulateOutcome> {
   const store = o.deps?.store ?? persist();
@@ -34,16 +40,22 @@ export async function simulateAndStore(repo: string, token: string | undefined, 
   let gray: Awaited<ReturnType<typeof discoverAccess>> | null = null;
   try { gray = await (o.deps?.graybox ?? discoverAccess)({ repo, sha: set.sha, graph: snap.graph, set, now }); } catch { /* reported in the notes below */ }
 
-  // Where both agents speak about the same finding, the white-box verdict stands: it can read the code.
-  const simulations: Record<string, Simulation> = { ...(gray?.simulations ?? {}), ...r.simulations };
+  // The red-team agent checks reachability to the crown jewels from the public surface alone. Same failure handling.
+  let red: Awaited<ReturnType<typeof discoverReachability>> | null = null;
+  try { red = await (o.deps?.redteam ?? discoverReachability)({ repo, sha: set.sha, graph: snap.graph, set, now }); } catch { /* reported in the notes below */ }
+
+  // Where more than one agent speaks about the same finding, the one that can read the code wins, then the one with credentials.
+  const simulations: Record<string, Simulation> = { ...(red?.simulations ?? {}), ...(gray?.simulations ?? {}), ...r.simulations };
   const counts: Record<string, number> = {};
   for (const s of Object.values(simulations)) counts[s.verdict] = (counts[s.verdict] ?? 0) + 1;
   const notes = [
     ...(snap.sha !== set.sha ? ["The map and the security scan are from different commits, so some paths may not line up."] : []),
     ...r.notes, ...(gray ? gray.notes.filter((n) => !/findings were not exercised/.test(n)) : ["The access-control tests could not run."]),
+    ...(red ? red.notes : ["The crown-jewel reachability check could not run."]),
   ];
   const merged = applySimulations(set, { simulations, run: r.run, runId: r.runId, counts, notes }, { sourceRead: o.source, at: now() });
   if (gray) merged.simulated = { ...merged.simulated!, graybox: { runId: gray.runId, head: gray.run.head } };
+  if (red) merged.simulated = { ...merged.simulated!, redteam: { runId: red.runId, head: red.run.head } };
   await store.putFindings(repo, merged);
   return { ok: true, set: merged };
 }

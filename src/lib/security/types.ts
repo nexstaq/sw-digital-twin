@@ -26,7 +26,7 @@ export type Vuln = z.infer<typeof Vuln>;
  */
 export const SimulationSchema = z.object({
   /** which agent reached it. Absent on verdicts stored before there was more than one. */
-  by: z.enum(["whitebox", "graybox"]).optional(),
+  by: z.enum(["whitebox", "graybox", "redteam"]).optional(),
   verdict: z.enum(["confirmed", "mitigated", "unreachable", "not-reproduced"]),
   confidence: z.enum(["high", "medium", "low"]),
   /** one plain-English sentence */
@@ -139,6 +139,8 @@ export const FindingSetSchema = z.object({
     at: z.number(), runId: z.string(), head: z.string(), sourceRead: z.boolean(), counts: z.record(z.string(), z.number()), notes: z.array(z.string()),
     /** the gray-box agent's own run, with its own audit log head */
     graybox: z.object({ runId: z.string(), head: z.string() }).optional(),
+    /** the red-team agent's own run (crown-jewel reachability from the public surface), with its own audit log head */
+    redteam: z.object({ runId: z.string(), head: z.string() }).optional(),
   }).optional(),
   /** what could not be checked (OSV unreachable, scan capped, …): never silently "all clear" */
   warnings: z.array(z.string()),

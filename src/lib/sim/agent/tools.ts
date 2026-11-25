@@ -41,7 +41,7 @@ export const defineTool = <I, O>(t: SimTool<I, O>): SimTool<I, O> => t;
 export const TOOL_ALLOWLIST: Record<Agent, readonly string[]> = {
   whitebox: ["range_inspect", "range_request"],
   graybox: ["range_inspect", "range_request", "http_probe"],
-  redteam: ["range_inspect", "range_request"],
+  redteam: ["range_inspect", "range_request", "range_trigger", "range_flow"],
   blue: ["range_inspect"],
   narrator: ["range_inspect"],
 };
