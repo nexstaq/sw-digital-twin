@@ -1,7 +1,7 @@
 # Simulation and adversary emulation: spec, threat model, rules of engagement (X0)
 
-Status: **X0 and X1 done.** `src/lib/sim/` has the rules of engagement, scope guard and audit log (X0) and the range (`src/lib/sim/range/`, X1). **No agent, route, UI or stored run exists yet.**
-Everything below that says "must" is a requirement on a later prompt (X2 to X10, see `PROMPTS-SIM.md`), not a description of working behaviour.
+Status: **X0, X1 and X2 done.** `src/lib/sim/` has the rules of engagement, scope guard and audit log (X0), the range (`range/`, X1) and the simulator behind the Simulate lens (`simulate/`, X2, with `src/components/twin/SimulatePanel.tsx`). **No agent, server route or stored run exists yet.**
+Everything below that says "must" is a requirement on a later prompt (X3 to X10, see `PROMPTS-SIM.md`), not a description of working behaviour.
 The decision behind it is `docs/adr/0001-simulation-boundary.md`.
 
 ## What we are building, in one paragraph
@@ -63,13 +63,14 @@ has no way to reach one. `isolation.test.ts` enforces that (see below). A sandbo
 
 | File | Role |
 |---|---|
-| `generate.ts` | `buildRange(snapshot, findings, {seed})`: pure, deterministic, input-order independent. Returns a `RangeSpec` with a `specHash`; its `id` (`range_<hash>`) is what the rules of engagement name as a `range` target |
+| `generate.ts`, `sha256.ts` | `buildRange(snapshot, findings, {seed})`: pure, deterministic, input-order independent. Hashing is a plain-code SHA-256 (checked against `node:crypto`), so the range builds in the browser too. Returns a `RangeSpec` with a `specHash`; its `id` (`range_<hash>`) is what the rules of engagement name as a `range` target |
 | `runtime.ts` | `startRange(spec)`: `handle(request)`, `flow(node)`, `runWorkflow(wf)`, `inject(fault)`, `advance(ms)`, `finish()`, `destroy()`. Seeded generator, virtual time, event cap (20,000), teardown that makes every later call throw |
 | `health.ts` | `rangeSignals(...)`: turns events into the same `SignalSet` the real connectors produce, so `applyHealth` lights up the map |
 | `types.ts`, `fixtures.ts` | the shapes; test fixtures |
 
 **What is emulated.** Endpoints (method, path, auth), services and external services (latency, failure), datastores (synthetic tables and a `SIM-CROWN-` marker),
 queues (depth), environments, and workflows (a job DAG with deploys). Clusters, route groups, packages and files are not emulated; the spec's `notes` say how many were left out.
+It works on any map shape, not only the ids a real scan produces: a top-level job that holds stages is a workflow (an environment inside it is a deploy step); a single named entry point ("GraphQL Gateway") is emulated as a walkable block even though it has no `GET /path` label. For maps whose ids the health engine does not special-case (`wf:`, `job:`, `env:`), job and deploy results reach the engine through the runtime path, so a failed job still turns its node red.
 
 **Weaknesses come only from findings.** Each modelled finding (SQL/command/code injection, path traversal, SSRF, XSS, open redirect, no-auth, pipeline injection) attaches
 to the routes in its file; dependency, credential and container findings are recorded as *latent*. A finding with no emulation, or that cannot be placed on the map, is counted in
@@ -91,6 +92,31 @@ summaries or narratives, reason text, a secret's kind or masked hint, source, or
 
 **Not done in X1.** No persistence of ranges or events, no route, no agent, no UI. Real-time health from the range is a function you call; nothing calls it yet. The range has not
 been run on a real scanned repository, only on fixtures and the demo graph. Insecure-direct-object-reference and other logic flaws are not in it because the scanner does not find them (X5 will have to supply such a weakness another way, for example an imported report).
+
+## X2: the Simulate lens (`src/lib/sim/simulate/`, `SimulatePanel.tsx`)
+
+A sixth lens beside Overview, Flow, Ops, Risk and Tour. Click any block and watch what it does, then break something and see what else changes.
+
+| File | Role |
+|---|---|
+| `scenario.ts` | `scenarioFor`: what to run for the block picked. A route runs one request; a service a request reaching it; data, queues and outside services the first service that uses them, so you see them in use; a pipeline, a job or an environment a change going through the pipeline; a grouping block the most connected thing inside it. Code structure (a package, a file) says why there is nothing to run. `suggest` offers a service, a queue and a pipeline to try first |
+| `play.ts` | `runScenario`: runs it in a fresh range and turns what happened into steps, in the order they happened. Each step has three voices (plain English, engineer, security), the blocks it is about, and the code behind them from the map's own evidence |
+| `fault.ts` | `simulateHealth`: runs steady traffic, then the same again with a fault (stops working, very slow, fails half the time), feeds the range's events to the **real** health engine, and reports which blocks change colour and why |
+
+**The words are not written by a model.** Every step is a template filled from what the range did, so the same run reads the same every time. (The X2 prompt allowed an optional model to reword; that is not built, B16.)
+A test enforces that no step names a block other than the ones it is about, and that every block it does name is on the map. That test found a real flaw while writing it: a failed-dependency note was leaking another block's name into a caption.
+
+**Health is the engine's, not a rule written for the simulator.** A fault changes a block's colour exactly when `applyHealth` would. The engine needs 6 readings to know what "normal" is before it will call anything slow, so the simulation runs 8 healthy rounds, then 3 with the fault. Every reason is tagged "simulation", so it can never be mistaken for a real signal. Blocks the run never touched stay `unknown` and are not guessed green.
+
+**The map is never confused with reality.** While the lens is open the canvas shows the simulation's colours, with a notice saying so. The GO / NO-GO banner, the timeline and everything else keep using the real health (tested). Closing the lens restores the real colours.
+
+**Privacy.** The Simulate lens builds its range with no security findings, because findings are for maintainers only and this lens is visible to anyone who can see the map. So it contains no weaknesses and shows how blocks work, not how they could be attacked. Nothing is sent anywhere: the range runs in the browser, and an end-to-end test records every fetch, XHR and socket during a full session and expects none.
+
+**Accessibility.** Playback, step, restart and speed are buttons; arrow keys step; the caption is an `aria-live` region; success and failure use an icon and a word, not colour alone. With reduced motion on, nothing plays by itself and Play is disabled, so stepping is the way through. On a phone the panel is a bottom sheet and the map stays visible above it.
+
+**How a step reaches the canvas.** The panel sets the existing highlight (`edgeIds` is a new optional field) to everything touched so far, with the current block in focus, and opens the canvas at the block that holds the whole run. It reuses the map's own lit/dimmed styling rather than adding a second one.
+
+**Not done in X2.** The Simulate state is not in the URL, so a view cannot be shared. Weaknesses are not shown here (X4 to X6). The animation shows the run at one zoom level; a pipeline whose jobs are inside a workflow shows the workflow and its release on the top level, and the jobs in the step list. No one has used it yet (Q1 covers this). Simulating on a map built from a real scan was tested end to end only on the mock repository.
 
 ## Threat model of this feature
 

@@ -155,7 +155,7 @@ export interface WorkflowResult {
   conclusion: "success" | "failure";
   startedAt: number;
   endedAt: number;
-  jobs: { nodeId: string; label: string; conclusion: "success" | "failure" | "skipped"; startedAt: number; endedAt: number; failedStep?: string }[];
+  jobs: { nodeId: string; label: string; /** a job, or an environment that is a deploy step inside the workflow */ stage: "job" | "env"; conclusion: "success" | "failure" | "skipped"; startedAt: number; endedAt: number; failedStep?: string }[];
   deploys: { envId: string; state: "success" | "failure"; sha: string }[];
   proofs: string[];
 }

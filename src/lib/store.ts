@@ -1,8 +1,9 @@
 import { create } from "zustand";
 
 import type { Highlight } from "@/lib/ask/types";
+import type { TwinGraph } from "@/lib/graph/types";
 
-export type Lens = "overview" | "flow" | "ops" | "risk" | "tour";
+export type Lens = "overview" | "flow" | "ops" | "risk" | "tour" | "simulate";
 
 interface TwinState {
   path: string[];
@@ -15,6 +16,10 @@ interface TwinState {
   /** result of a ⌘K question, rendered on the canvas */
   highlight: Highlight | null;
   paletteOpen: boolean;
+  /** Simulate lens: the block being simulated (kept when the camera moves), and the map as the simulation sees it (health from the range, not from the real system) */
+  simFocusId: string | null;
+  simOverlay: TwinGraph | null;
+  setSimOverlay: (g: TwinGraph | null) => void;
   /** incident replay in progress */
   replay: { playing: boolean; speed: 1 | 2 | 4 } | null;
   setReplay: (r: TwinState["replay"]) => void;
@@ -38,6 +43,9 @@ export const useTwin = create<TwinState>((set) => ({
   tourPlaying: true,
   highlight: null,
   paletteOpen: false,
+  simFocusId: null,
+  simOverlay: null,
+  setSimOverlay: (simOverlay) => set({ simOverlay }),
   replay: null,
   setReplay: (replay) => set({ replay }),
   setHighlight: (highlight) => set({ highlight }),
@@ -45,7 +53,7 @@ export const useTwin = create<TwinState>((set) => ({
   setPath: (path) => set({ path, selectedId: null }),
   drill: (id) => set((s) => (s.path.at(-1) === id ? s : { path: [...s.path, id], selectedId: null })),
   upTo: (depth) => set((s) => ({ path: s.path.slice(0, depth), selectedId: null })),
-  select: (id) => set({ selectedId: id }),
+  select: (id) => set((s) => ({ selectedId: id, ...(id && s.lens === "simulate" ? { simFocusId: id } : {}) })),
   setLens: (lens) => set({ lens }),
   setScrub: (scrub) => set({ scrub }),
   setTour: (tourStep, playing) => set((s) => ({ tourStep, tourPlaying: playing ?? s.tourPlaying })),

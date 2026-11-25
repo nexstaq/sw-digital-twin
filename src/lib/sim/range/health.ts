@@ -17,8 +17,12 @@ const p95 = (xs: number[]) => {
 
 export function rangeSignals(spec: RangeSpec, feed: { events: readonly RangeEvent[]; workflows: readonly WorkflowResult[] }, o: { baseTs: number; now: number }): SignalSet {
   const groups = new Map<string, { nodeId: string; ts: number; ms: number[]; errors: number }>();
+  // The engine reads CI health from `wf:` / `job:` / `env:` ids. A map with other ids (the demo, hand-made graphs) gets its CI health
+  // through the runtime path instead, so a failed job or deploy still turns its node red.
+  const engineCi = (id: string) => /^(wf|job|env):/.test(id);
   for (const e of feed.events) {
-    if (e.kind !== "visit" && e.kind !== "request") continue;
+    const counted = e.kind === "request" || e.kind === "visit" || ((e.kind === "job" || e.kind === "deploy") && !engineCi(e.nodeId) && e.note !== "skipped");
+    if (!counted) continue;
     const ts = Math.floor((o.baseTs + e.t) / BUCKET_MS) * BUCKET_MS;
     const k = `${e.nodeId}@${ts}`;
     const g = groups.get(k) ?? { nodeId: e.nodeId, ts, ms: [], errors: 0 };

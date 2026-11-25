@@ -5,6 +5,7 @@ import { rangeSignals } from "./health";
 import { startRange } from "./runtime";
 import { JOB_DEPLOY, JOB_TEST, shopFindings, shopGraph, WF } from "./fixtures";
 import type { WorkflowResult } from "./types";
+import { fixtureGraph } from "@/lib/graph/fixture";
 
 const BASE = Date.UTC(2026, 10, 25, 12, 0, 0);
 const spec = buildRange({ sha: "b".repeat(40), graph: shopGraph() }, shopFindings());
@@ -111,5 +112,32 @@ describe("the signals themselves", () => {
     expect(s).toMatchObject({ runs: [], deploys: [], runtime: [], mappings: {} });
     const g = applyHealth(shopGraph(), s, BASE);
     expect(state(g, "svc:api").state).toBe("unknown");
+  });
+});
+
+describe("CI health on a map with other ids (the demo) goes through the runtime path", () => {
+  const demoSpec = buildRange({ sha: "b".repeat(40), graph: fixtureGraph }, null);
+  const run = (fail?: string) => {
+    const r = startRange(demoSpec);
+    const wfs: WorkflowResult[] = [];
+    for (let i = 0; i < 3; i++) { wfs.push(r.runWorkflow("ci")); r.advance(FIVE); }
+    for (let i = 0; i < 3; i++) { wfs.push(r.runWorkflow("ci", { failJob: fail })); r.advance(FIVE); }
+    const now = BASE + r.now();
+    return applyHealth(fixtureGraph, rangeSignals(demoSpec, { events: r.events(), workflows: wfs }, { baseTs: BASE, now }), now);
+  };
+  const st = (g: ReturnType<typeof run>, id: string) => g.nodes.find((n) => n.id === id)!;
+  it("a job that starts failing turns red, and jobs that passed stay green", () => {
+    const g = run("wf-unit");
+    expect(st(g, "wf-unit").state).toBe("failing");
+    expect(st(g, "wf-lint").state).toBe("nominal");
+  });
+  it("a job skipped because something before it failed is not counted as passing or failing", () => {
+    const g = run("wf-unit");
+    expect(st(g, "wf-build").state).not.toBe("failing");
+    expect(st(g, "wf-build").reasons.join(" ")).not.toMatch(/Error rate/);
+  });
+  it("when nothing fails, every job is green", () => {
+    const g = run(undefined);
+    for (const id of ["wf-lint", "wf-unit", "wf-e2e", "wf-build"]) expect(st(g, id).state, id).toBe("nominal");
   });
 });

@@ -3,6 +3,7 @@ import { buildRange } from "./generate";
 import { RangeDestroyedError, RangeLimitError, startRange } from "./runtime";
 import { edge, finding, JOB_DEPLOY, JOB_TEST, shopFindings, shopGraph, WF } from "./fixtures";
 import type { RangeRequest, RangeSpec } from "./types";
+import { fixtureGraph } from "@/lib/graph/fixture";
 
 const spec = (over: { seed?: number } = {}) => buildRange({ sha: "b".repeat(40), graph: shopGraph() }, shopFindings(), over);
 const start = (s: RangeSpec = spec(), maxEvents?: number) => startRange(s, { maxEvents });
@@ -230,6 +231,32 @@ describe("workflows", () => {
     const r = start(buildRange({ sha: "b".repeat(40), graph: shopGraph() }, { ...shopFindings(), findings: [finding("fx", "CODE/weak-hash", "code", "x.ts")] }));
     expect(r.runWorkflow(WF, { trigger: "outsider-pr" }).proofs).toEqual([]);
   });
+});
+
+describe("workflows on a map whose ids are not wf:/job:/env: (the demo)", () => {
+  const demo = () => startRange(buildRange({ sha: "b".repeat(40), graph: fixtureGraph }, null));
+  it("an environment inside a workflow is a deploy step, in the order the edges say", () => {
+    const w = demo().runWorkflow("release");
+    expect(w.jobs.map((j) => `${j.stage}:${j.nodeId}`)).toEqual(["env:rel-stage", "job:rel-gate", "env:rel-prod"]);
+    expect(w.deploys.map((d) => `${d.envId}:${d.state}`)).toEqual(["rel-stage:success", "rel-prod:success"]);
+  });
+  it("a failed gate skips the production deploy, and the earlier staging deploy still happened", () => {
+    const w = demo().runWorkflow("release", { failJob: "rel-gate" });
+    expect(w.conclusion).toBe("failure");
+    expect(w.jobs.map((j) => j.conclusion)).toEqual(["success", "failure", "skipped"]);
+    expect(w.deploys.map((d) => `${d.envId}:${d.state}`)).toEqual(["rel-stage:success"]);
+  });
+  it("parallel jobs run side by side and the build waits for all of them", () => {
+    const w = demo().runWorkflow("ci");
+    const by = Object.fromEntries(w.jobs.map((j) => [j.nodeId, j]));
+    expect(by["wf-build"].startedAt).toBeGreaterThanOrEqual(Math.max(by["wf-lint"].endedAt, by["wf-unit"].endedAt, by["wf-e2e"].endedAt));
+    expect(by["wf-lint"].startedAt).toBe(by["wf-unit"].startedAt);
+  });
+  it("a failed environment stage reports a failed deploy", () => {
+    const r = demo(); r.inject("rel-prod", { kind: "outage" });
+    expect(r.runWorkflow("release").deploys.map((d) => `${d.envId}:${d.state}`)).toEqual(["rel-stage:success", "rel-prod:failure"]);
+  });
+  it("a job with no stages is not a workflow", () => { expect(() => demo().runWorkflow("wf-lint")).toThrow(/not a workflow/); });
 });
 
 describe("hard limits and teardown", () => {

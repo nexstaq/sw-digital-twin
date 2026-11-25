@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import type { TwinGraph, TwinNode } from "@/lib/graph/types";
 import { nodeFor } from "@/lib/security/map";
 import type { Finding, FindingSet } from "@/lib/security/types";
+import { sha256Hex } from "./sha256";
 import {
   METHODS, WRITE_METHODS,
   type DatastoreSpec, type EmulatorSpec, type EndpointSpec, type Method, type PayloadClass, type RangeSpec, type Weakness, type WeaknessKind,
@@ -25,7 +25,7 @@ export function canonical(v: unknown): string {
   if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}`;
   return JSON.stringify(v) ?? "null";
 }
-const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+const sha = sha256Hex;
 const intFrom = (s: string, mod: number) => parseInt(sha(s).slice(0, 8), 16) % mod;
 const safe = (s: string) => s.replace(/[^A-Za-z0-9]/g, "").slice(0, 40);
 
@@ -58,9 +58,11 @@ export function buildRange(snap: { sha: string; graph: TwinGraph }, set: Finding
   const hasKids = new Set(graph.nodes.map((n) => n.parentId).filter((p): p is string => !!p));
 
   // 1. which nodes become emulators: concrete runtime parts and CI jobs, not the level-0 clusters that only group them
-  const isCluster = (n: TwinNode) => n.level === 0 && hasKids.has(n.id);
+  // A level-0 block that only groups things is not emulated; a level-0 job that has stages IS a workflow. A route group is not
+  // emulated, but an endpoint that is a single named entry point (no routes inside it) is: it can be walked like any service.
+  const isCluster = (n: TwinNode) => n.level === 0 && hasKids.has(n.id) && n.kind !== "job";
   const isRoute = (n: TwinNode) => n.kind === "endpoint" && ROUTE.test(n.label);
-  const emulated = graph.nodes.filter((n) => EMULATED.has(n.kind) && !isCluster(n) && (n.kind !== "endpoint" || isRoute(n)));
+  const emulated = graph.nodes.filter((n) => EMULATED.has(n.kind) && !isCluster(n) && (n.kind !== "endpoint" || isRoute(n) || !hasKids.has(n.id)));
   const emuIds = new Set(emulated.map((n) => n.id));
   const skipped = graph.nodes.filter((n) => !emuIds.has(n.id)).length;
   if (skipped) notes.push(`${skipped} map nodes were not emulated (clusters, route groups, packages and files).`);

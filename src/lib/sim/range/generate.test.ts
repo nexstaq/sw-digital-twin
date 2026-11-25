@@ -26,7 +26,7 @@ describe("the same snapshot always gives the same range", () => {
     const s = shopFindings(); s.findings.push(finding("f9", "CODE/xss-react", "code", "api/src/orders.ts"));
     expect(build({ set: s }).specHash).not.toBe(base);
   });
-  it("golden: the hash of the sample range, so an accidental change to the generator is noticed", () => { expect(build().specHash).toBe("5a7207293fbaf109"); });
+  it("golden: the hash of the sample range, so an accidental change to the generator is noticed", () => { expect(build().specHash).toBe("5ffe9c00379e9588"); });
   it("the id can be named as a `range` target in the rules of engagement", () => {
     const spec = build();
     expect(spec.id).toMatch(/^range_[0-9a-f]{16}$/);
@@ -151,10 +151,16 @@ describe("the demo repository", () => {
     r.finish();
     expect(r.destroyed).toBe(true);
   });
-  it("no node in the demo graph is both a cluster and an emulator", () => {
+  it("the only top-level nodes that are emulated are workflows (jobs that hold stages), never clusters", () => {
     const spec = buildRange({ sha: SHA, graph: fixtureGraph }, null);
-    const parents = new Set(fixtureGraph.nodes.filter((n) => n.level === 0).map((n) => n.id));
-    for (const e of spec.emulators) if (parents.has(e.nodeId)) expect(fixtureGraph.nodes.some((n) => n.parentId === e.nodeId)).toBe(false);
+    const top = spec.emulators.filter((e) => fixtureGraph.nodes.find((n) => n.id === e.nodeId)!.level === 0);
+    expect(top.map((e) => e.nodeId).sort()).toEqual(["ci", "release"]);
+    expect(top.every((e) => e.kind === "job")).toBe(true);
+  });
+  it("single named entry points are emulated, route groups are not", () => {
+    const demo = buildRange({ sha: SHA, graph: fixtureGraph }, null).emulators.map((e) => e.nodeId);
+    expect(demo).toEqual(expect.arrayContaining(["api-gw", "pay-hook"]));
+    expect(build().emulators.map((e) => e.nodeId)).not.toContain("grp:api");
   });
 });
 

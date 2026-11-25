@@ -27,7 +27,7 @@ export function dimmedIds(nodes: TwinNode[], lens: Lens): Set<string> {
 /** The line under a tile's name, written for the reader of the lens. */
 export function tileSubtitle(n: TwinNode, lens: Lens): string | undefined {
   if (lens === "overview") return n.narrative?.exec ?? n.summary;
-  if (lens === "ops") return n.reasons[0] ?? (n.live ? "Running now" : undefined);
+  if (lens === "ops" || lens === "simulate") return n.reasons[0] ?? (n.live ? "Running now" : undefined);
   if (lens === "risk") return n.narrative?.security;
   return undefined; // flow: kind and structure speak for themselves
 }

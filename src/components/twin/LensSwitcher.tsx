@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Compass, GitBranch, LayoutGrid, ShieldAlert, type LucideIcon } from "lucide-react";
+import { Activity, Compass, FlaskConical, GitBranch, LayoutGrid, ShieldAlert, type LucideIcon } from "lucide-react";
 import { useTwin, type Lens } from "@/lib/store";
 
 const LENSES: { id: Lens; label: string; hint: string; Icon: LucideIcon }[] = [
@@ -9,6 +9,7 @@ const LENSES: { id: Lens; label: string; hint: string; Icon: LucideIcon }[] = [
   { id: "ops", label: "Ops", hint: "Only what needs attention", Icon: Activity },
   { id: "risk", label: "Risk", hint: "Security exposure", Icon: ShieldAlert },
   { id: "tour", label: "Tour", hint: "Guided walkthrough", Icon: Compass },
+  { id: "simulate", label: "Simulate", hint: "See how a part works, and what breaks", Icon: FlaskConical },
 ];
 
 export function LensSwitcher() {

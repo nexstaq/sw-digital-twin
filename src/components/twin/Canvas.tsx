@@ -26,6 +26,7 @@ import { VocabContext } from "./status";
 import { TILE_H, TILE_W, TileNodeComponent, type TileNode } from "./NodeTile";
 import { TimelineScrubber } from "./TimelineScrubber";
 import { TourPlayer, useTourSteps } from "./TourPlayer";
+import { SimulatePanel } from "./SimulatePanel";
 
 const nodeTypes = { tile: TileNodeComponent };
 const edgeTypes = { flow: AnimatedEdge };
@@ -37,8 +38,12 @@ const AUTO_DRILL_ZOOM = 1.5;
 
 interface ViewProps { /** "security" recolours the same map by risk: own headline, no lens switcher or deploy timeline */ mode?: "health" | "security"; /** replaces the GO / NO-GO banner */ banner?: ReactNode; incident?: Incident | null; anchor?: number; headerExtra?: ReactNode; /** drawer section for editing the selected node (people with push access) */ nodeEditor?: (node: TwinNode) => ReactNode }
 
-function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "health", banner }: { graph: TwinGraph } & ViewProps) {
+function Inner({ graph: realGraph, incident, anchor, headerExtra, nodeEditor, mode = "health", banner }: { graph: TwinGraph } & ViewProps) {
   const { path, selectedId, lens, drill, upTo, select, setPath, setLens, tourStep, highlight, setHighlight, setPalette, replay, setReplay, setScrub } = useTwin();
+  // In the Simulate lens the map shows the simulation's health; the banner, timeline and everything else keep using the real one.
+  const simOverlay = useTwin((s) => s.simOverlay);
+  const simulating = lens === "simulate" && mode === "health";
+  const graph = simulating && simOverlay ? simOverlay : realGraph;
   const story = useTourSteps(graph);
   const touring = lens === "tour";
   const tourNodeId = touring ? story.tour[Math.min(tourStep, story.tour.length - 1)]?.nodeId : undefined;
@@ -202,9 +207,9 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "healt
   const edges = useMemo(
     () => laid.edges.map((e) => {
       const fresh = graph.edges.find((g) => g.id === e.id);
-      return { ...e, data: { ...e.data!, throughput: fresh?.throughput ?? e.data!.throughput, errorRate: fresh?.errorRate ?? e.data!.errorRate, faded: !!impact && !impact.edges.has(e.id) } };
+      return { ...e, data: { ...e.data!, throughput: fresh?.throughput ?? e.data!.throughput, errorRate: fresh?.errorRate ?? e.data!.errorRate, faded: (!!impact && !impact.edges.has(e.id)) || (simulating && !!highlight?.edgeIds && !highlight.edgeIds.includes(e.id)) } };
     }),
-    [laid.edges, graph.edges, impact],
+    [laid.edges, graph.edges, impact, simulating, highlight],
   );
   const hovered = hoverId ? nodeById(graph, hoverId) : null;
 
@@ -221,7 +226,7 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "healt
             <div className="font-mono text-[11px] text-ink-dim">{graph.repo}</div>
           </div>
         </div>
-        {mode === "security" ? banner : <GoNoGoBanner graph={graph} onShow={(b) => { setHighlight(null); setPath(b.path); select(b.id); }} />}
+        {mode === "security" ? banner : <GoNoGoBanner graph={realGraph} onShow={(b) => { setHighlight(null); setPath(b.path); select(b.id); }} />}
         <div className="ml-auto flex items-center gap-2">
           {headerExtra}
           <button onClick={() => setPalette(true)} aria-label="Ask or jump (Command K)" className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink-dim hover:text-ink">
@@ -243,7 +248,7 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "healt
         ))}
       </nav>
 
-      <div ref={wrapRef} className="relative flex-1" onPointerMove={(e) => { pointer.current = { x: e.clientX, y: e.clientY }; }}>
+      <div ref={wrapRef} className={`relative flex-1 ${simulating ? "max-md:pb-[46dvh] md:pr-[27.5rem]" : ""}`} onPointerMove={(e) => { pointer.current = { x: e.clientX, y: e.clientY }; }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -277,7 +282,7 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "healt
           <Controls showInteractive={false} position="bottom-left" />
         </ReactFlow>
         <SideDrawer
-          node={touring ? null : selected}
+          node={touring || simulating ? null : selected}
           lens={lens}
           childCount={selected ? childrenOf(graph, selected.id).length : 0}
           editor={selected && nodeEditor ? nodeEditor(selected) : undefined}
@@ -289,8 +294,9 @@ function Inner({ graph, incident, anchor, headerExtra, nodeEditor, mode = "healt
           }}
         />
         {touring && <TourPlayer graph={graph} onExit={() => setLens("overview")} />}
-        {replay && incident && anchor ? <ReplayBar graph={graph} incident={incident} anchor={anchor} /> : <HighlightBar graph={graph} />}
-        <p className={`pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-ink-faint ${touring || highlight || replay ? "hidden" : ""}`}>
+        {simulating && <SimulatePanel graph={realGraph} />}
+        {replay && incident && anchor ? <ReplayBar graph={graph} incident={incident} anchor={anchor} /> : !simulating && <HighlightBar graph={graph} />}
+        <p className={`pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-ink-faint ${touring || highlight || replay || simulating ? "hidden" : ""}`}>
           {hovered && impact ? (
             <span className="flex items-center gap-1.5 rounded-full border border-failing/40 bg-surface/90 px-3 py-1 text-ink-dim">
               <Zap size={12} className="text-failing" aria-hidden />

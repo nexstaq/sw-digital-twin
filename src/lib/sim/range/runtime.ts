@@ -167,13 +167,17 @@ export function startRange(spec: RangeSpec, opts: { maxEvents?: number } = {}): 
     return { status: 200, traceId, ms, body: "ok" };
   }
 
+  const stagesOf = (wfId: string) => [...emus.values()].filter((e) => (e.kind === "job" || e.kind === "env") && e.parentId === wfId).sort((a, b) => a.nodeId.localeCompare(b.nodeId));
+  /** a workflow is a job that has stages (jobs, and environments it deploys to) inside it */
+  const isWorkflow = (id: string) => emus.get(id)?.kind === "job" && stagesOf(id).length > 0;
+
   function runWorkflow(wfId: string, o: { sha?: string; trigger?: WorkflowResult["trigger"]; failJob?: string } = {}): WorkflowResult {
     alive();
-    if (!wfId.startsWith("wf:") || !emus.has(wfId)) throw new Error(`not a workflow in this range: ${wfId}`);
+    if (!isWorkflow(wfId)) throw new Error(`not a workflow in this range: ${wfId}`);
     const sha = o.sha ?? "0".repeat(40);
     const trigger = o.trigger ?? "push";
     const traceId = newTrace();
-    const jobs = [...emus.values()].filter((e) => e.kind === "job" && e.parentId === wfId).sort((a, b) => a.nodeId.localeCompare(b.nodeId));
+    const jobs = stagesOf(wfId);
     const ids = new Set(jobs.map((j) => j.nodeId));
     const needs = new Map(jobs.map((j) => [j.nodeId, [] as string[]]));
     for (const e of spec.edges) if (e.kind === "triggers" && ids.has(e.from) && ids.has(e.to)) needs.get(e.to)!.push(e.from);
@@ -183,26 +187,29 @@ export function startRange(spec: RangeSpec, opts: { maxEvents?: number } = {}): 
     const pending = new Set(ids);
     while (pending.size) {
       const ready = [...pending].sort().find((id) => needs.get(id)!.every((n) => done.has(n)));
-      if (!ready) { for (const id of [...pending].sort()) done.set(id, { nodeId: id, label: emus.get(id)!.label, conclusion: "skipped", startedAt: t, endedAt: t }); break; } // a cycle: never run
+      if (!ready) { for (const id of [...pending].sort()) done.set(id, { nodeId: id, label: emus.get(id)!.label, stage: emus.get(id)!.kind === "env" ? "env" : "job", conclusion: "skipped", startedAt: t, endedAt: t }); break; } // a cycle: never run
       pending.delete(ready);
       const emu = emus.get(ready)!;
+      const stage = emu.kind === "env" ? "env" : "job";
       const deps = needs.get(ready)!.map((n) => done.get(n)!);
       const start = Math.max(startedAt, ...deps.map((d) => d.endedAt));
-      if (deps.some((d) => d.conclusion !== "success")) { done.set(ready, { nodeId: ready, label: emu.label, conclusion: "skipped", startedAt: start, endedAt: start }); continue; }
-      const end = start + (emu.durationMs ?? 30_000) + Math.floor(rand() * 5000);
+      if (deps.some((d) => d.conclusion !== "success")) { done.set(ready, { nodeId: ready, label: emu.label, stage, conclusion: "skipped", startedAt: start, endedAt: start }); continue; }
+      const end = start + (emu.durationMs ?? (stage === "env" ? 3_000 : 30_000)) + Math.floor(rand() * 5000);
       const f = faults.get(ready);
       const failed = o.failJob === ready || f?.kind === "outage" || (f?.kind === "error" && rand() < f.rate);
-      done.set(ready, { nodeId: ready, label: emu.label, conclusion: failed ? "failure" : "success", startedAt: start, endedAt: end, ...(failed ? { failedStep: o.failJob === ready ? "(simulated failure)" : "(injected fault)" } : {}) });
+      done.set(ready, { nodeId: ready, label: emu.label, stage, conclusion: failed ? "failure" : "success", startedAt: start, endedAt: end, ...(failed ? { failedStep: o.failJob === ready ? "(simulated failure)" : "(injected fault)" } : {}) });
     }
     const results = [...done.values()].sort((a, b) => a.startedAt - b.startedAt || a.nodeId.localeCompare(b.nodeId));
     const endedAt = Math.max(startedAt, ...results.map((r) => r.endedAt));
     const conclusion = results.some((r) => r.conclusion === "failure") ? "failure" : "success";
 
+    // an environment inside the workflow is a deploy step; an environment elsewhere on the map is reached by a `deploys_to` edge from a job
     const deploys: WorkflowResult["deploys"] = [];
     for (const r of results) {
       if (r.conclusion === "skipped") continue;
+      if (r.stage === "env") { if (r.conclusion === "success") deployed.set(r.nodeId, sha); deploys.push({ envId: r.nodeId, state: r.conclusion, sha }); continue; }
       for (const e of adj.get(r.nodeId) ?? []) {
-        if (e.kind !== "deploys_to" || emus.get(e.to)?.kind !== "env") continue;
+        if (e.kind !== "deploys_to" || emus.get(e.to)?.kind !== "env" || ids.has(e.to)) continue;
         const state = r.conclusion === "success" ? "success" : "failure";
         if (state === "success") deployed.set(e.to, sha);
         deploys.push({ envId: e.to, state, sha });
@@ -210,8 +217,10 @@ export function startRange(spec: RangeSpec, opts: { maxEvents?: number } = {}): 
     }
     const proofs = trigger !== "outsider-pr" ? [] : spec.weaknesses.filter((w) => w.kind === "pipeline-injection" && w.reachable && (w.nodeId === wfId || results.some((r) => r.nodeId === w.nodeId && r.conclusion !== "skipped"))).map((w) => w.proof);
 
-    for (const r of [...results].sort((a, b) => a.endedAt - b.endedAt || a.nodeId.localeCompare(b.nodeId))) emit({ t: r.endedAt, traceId, kind: "job", nodeId: r.nodeId, ok: r.conclusion !== "failure", ms: r.endedAt - r.startedAt, note: r.conclusion === "skipped" ? "skipped" : r.failedStep });
-    for (const d of deploys) emit({ t: endedAt, traceId, kind: "deploy", nodeId: d.envId, ok: d.state === "success", ms: 0, note: d.sha.slice(0, 7) });
+    for (const r of [...results].sort((a, b) => a.endedAt - b.endedAt || a.nodeId.localeCompare(b.nodeId))) {
+      emit({ t: r.endedAt, traceId, kind: r.stage === "env" ? "deploy" : "job", nodeId: r.nodeId, ok: r.conclusion !== "failure", ms: r.endedAt - r.startedAt, note: r.conclusion === "skipped" ? "skipped" : r.failedStep });
+    }
+    for (const d of deploys) if (!ids.has(d.envId)) emit({ t: endedAt, traceId, kind: "deploy", nodeId: d.envId, ok: d.state === "success", ms: 0, note: d.sha.slice(0, 7) });
     t = endedAt;
     return { runId: ++runs, workflowId: wfId, sha, trigger, conclusion, startedAt, endedAt, jobs: results, deploys, proofs };
   }

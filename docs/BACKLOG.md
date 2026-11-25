@@ -28,12 +28,17 @@ Other docs describe how things work today; they should not carry their own to-do
 | B14 | Weaknesses the scanner cannot find (IDOR, business logic) | The range is seeded only from findings; X5 needs another source, such as an imported report |
 | B15 | Tie a finding to one handler, not every route in its file | The map does not carry line-to-handler mapping for routes |
 
+| B16 | Optional model rewording of simulation captions | The X2 prompt allowed it; not built. Needs the same untrusted-text rules as explain.ts |
+| B17 | Simulate state in the URL, so a run can be shared | Not built |
+| B18 | Show a pipeline's jobs and its release in one view | The canvas shows one level; jobs inside a workflow appear only in the step list |
+
 ## Quality and verification
 
 | ID | Item | Why open |
 |---|---|---|
 | Q1 | Usability test with real people (3 per persona) | The 5-second exec claim is untested with users. Protocol in docs/usability.md |
-| Q2 | Screen-reader pass | Only roles and labels checked |
+| Q2 | Screen-reader pass | Only roles and labels checked. Includes the Simulate lens |
+| Q5 | Lens tabs have no visible label on a phone, so their accessible name is the tooltip text | Existing for every lens; found while testing Simulate |
 | Q3 | Language-model output quality on a live model | Exercised with mocks and with no key only (ask, explain, persona text) |
 | Q4 | Tile subtitle size (about 11 px, truncated) | Needs a real read-through |
 

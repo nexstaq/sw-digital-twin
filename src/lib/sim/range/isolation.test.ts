@@ -17,11 +17,17 @@ const code = (file: string) => readFileSync(path.join(dir, file), "utf8").replac
 const imports = (src: string) => [...src.matchAll(/(?:^|\n)\s*import\s+(?:type\s+)?[^;]*?from\s+["']([^"']+)["']/g)].map((m) => m[1]);
 
 /** the parts that RUN: they may import only these */
-const RUNNING = { "runtime.ts": ["zod", "./types"], "health.ts": ["@/lib/health/signals", "./types"], "types.ts": ["@/lib/graph/types", "@/lib/security/types"] } as const;
+const RUNNING = {
+  "runtime.ts": ["zod", "./types"],
+  "health.ts": ["@/lib/health/signals", "./types"],
+  "types.ts": ["@/lib/graph/types", "@/lib/security/types"],
+  "sha256.ts": [],
+  "generate.ts": ["./sha256", "./types", "@/lib/graph/types", "@/lib/security/map", "@/lib/security/types"],
+} as const;
 
 describe("the running code can only compute", () => {
   for (const [file, allowed] of Object.entries(RUNNING)) {
-    it(`${file} imports only ${allowed.join(", ")}`, () => { expect(imports(code(file)).sort()).toEqual([...allowed].sort()); });
+    it(`${file} imports only ${allowed.join(", ") || "nothing"}`, () => { expect(imports(code(file)).sort()).toEqual([...allowed].sort()); });
     it(`${file} has no network, file, process, clock or randomness`, () => {
       const src = code(file);
       for (const [name, re] of [
@@ -32,9 +38,6 @@ describe("the running code can only compute", () => {
       ] as const) expect(re.test(src), `${file} uses ${name}`).toBe(false);
     });
   }
-  it("generate.ts imports only node:crypto (for hashing) and our own pure code", () => {
-    expect(imports(code("generate.ts")).sort()).toEqual(["./types", "@/lib/graph/types", "@/lib/security/map", "@/lib/security/types", "node:crypto"].sort());
-  });
   it("the scan above really reads the code (it would catch a fetch)", () => {
     const sample = "export const x = () => fetch('http://169.254.169.254/');";
     expect(/\bfetch\s*\(/.test(sample)).toBe(true);

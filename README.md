@@ -11,6 +11,7 @@ Live at <https://sw-digital-twin.nexstaq.com>. There is a no-sign-in demo at `/d
 | Area | What you get |
 |---|---|
 | **Map** | Delivery flow, services and infrastructure derived from workflows, Dockerfiles, package manifests and code. Five lenses: Overview, Flow, Ops, Risk, Tour. Every node shows its evidence and a confidence badge. |
+| **Simulate** | A sixth lens: click any block and watch a request, a queue hand-off or a change going through the pipeline pass through it step by step, in plain English, engineer or security voice. Then break something and see which blocks the real health rules would turn red. A simulated copy: nothing is sent anywhere, and the real verdict is never replaced. |
 | **Health** | GitHub Actions and Deployments, plus Sentry, Vercel and OpenTelemetry (OTLP) connectors, mapped onto the nodes. Go / No-Go verdict, blast radius, incident replay. |
 | **Plain English** | Optional AI descriptions and "ask the map" questions. Private repos never go to the free dev key. |
 | **Security** | Dependency advisories with reachability, secrets, code rules, pipeline and container checks, attack paths, OWASP and CWE views, SARIF import, GitHub alerts, trend over time, printable report. |

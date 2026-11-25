@@ -1,6 +1,6 @@
 import type { TwinNode } from "./types";
 
-type Lens = "overview" | "flow" | "ops" | "risk" | "tour";
+type Lens = "overview" | "flow" | "ops" | "risk" | "tour" | "simulate";
 
 /** Leaders and tour-takers get friendly names; engineers keep exact identifiers. */
 export function displayName(n: TwinNode, lens: Lens): string {

@@ -6,6 +6,8 @@ export interface Highlight {
   mode: "set" | "impact" | "info";
   ids: string[];
   focusId?: string;
+  /** edges to keep bright (the simulation uses this to show the path a request took) */
+  edgeIds?: string[];
   /** zoom path that shows the result */
   path: string[];
   source: "rules" | "ai";

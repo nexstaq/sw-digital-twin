@@ -100,7 +100,7 @@ export function envHealth(deploys: DeploySignal[], now: number): Verdict {
   };
 }
 
-const SOURCE_NAME: Record<string, string> = { otlp: "OTel", sentry: "Sentry", vercel: "Vercel" };
+const SOURCE_NAME: Record<string, string> = { otlp: "OTel", sentry: "Sentry", vercel: "Vercel", range: "simulation" };
 const RANK: Record<Status, number> = { failing: 3, degraded: 2, nominal: 1, unknown: 0 };
 
 /** Runtime verdicts per node: every mapped (source, service) series, worst one wins, reasons from all unhealthy ones. */
