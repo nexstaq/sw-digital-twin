@@ -50,6 +50,21 @@ export function useSecurity(repo: string) {
     } catch (e) { setScanError(e instanceof Error ? e.message : "The scan failed."); } finally { setScanning(false); }
   }, [q]);
 
+  const [simulating, setSimulating] = useState(false);
+  const [simError, setSimError] = useState<string | null>(null);
+  /** "Verify by simulation". `source` lets it read a few lines around each finding (with the person's own access); off unless asked. */
+  const simulate = useCallback(async (source: boolean) => {
+    setSimulating(true); setSimError(null);
+    try {
+      const r = await fetch(`/api/security/simulate?repo=${q}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source }) });
+      if (!r.ok) throw new Error(await err(r));
+      const set = (await r.json()) as FindingSet;
+      setState((s) => (s.kind === "ready" ? { ...s, set } : s));
+    } catch (e) { setSimError(e instanceof Error ? e.message : "The simulation failed."); } finally { setSimulating(false); }
+  }, [q]);
+  /** the kill switch: stops a simulation that is running for this repository */
+  const stopSimulation = useCallback(async () => { await fetch(`/api/security/simulate?repo=${q}`, { method: "DELETE" }).catch(() => undefined); }, [q]);
+
   /** re-read the stored scan (after a report was imported) */
   const reload = useCallback(async () => {
     const r = await fetch(`/api/security/findings?repo=${q}`, { cache: "no-store" });
@@ -58,5 +73,5 @@ export function useSecurity(repo: string) {
     setState((s) => (s.kind === "ready" ? { ...s, set } : s));
   }, [q]);
 
-  return { state, scan, scanning, scanError, reload };
+  return { state, scan, scanning, scanError, reload, simulate, simulating, simError, stopSimulation };
 }

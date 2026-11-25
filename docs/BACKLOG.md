@@ -39,6 +39,14 @@ Other docs describe how things work today; they should not carry their own to-do
 | B23 | The real network transport for the gray-box probe, reusing the S4 networking code | Not written (X9) |
 | B24 | A screen to approve an intrusive step and to stop a run | The gate and the kill switch exist as code only (X8) |
 
+| B25 | A model-assisted white-box mode (exploring beyond the two templates, writing patches) | X4 is deterministic. A model would need the X3 runtime, untrusted-source quoting, and a decision on sending excerpts to a model |
+| B26 | Patch templates for more kinds and languages; multi-line edits | Two kinds, one line, JS/TS only |
+| B27 | Keep verdicts across a rescan when a finding is unchanged | A rescan replaces the findings, so verdicts are lost |
+| B28 | A stop switch that reaches runs on other server instances | The registry is in-process, like the webhook bus (B2) |
+| B29 | Share the source-excerpt reader between the snippet route and the simulation | `src/lib/security/excerpt.ts` repeats part of the snippet route |
+| B30 | Run the simulation as a durable job, not inside the request | It runs in the request (60 s). Same reason as B1 |
+| B31 | Check a real repository on GitHub, not only the fixture | X4 was tested on the fixture and a fake store |
+
 ## Quality and verification
 
 | ID | Item | Why open |

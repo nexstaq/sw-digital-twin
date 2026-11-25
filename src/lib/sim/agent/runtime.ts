@@ -1,4 +1,4 @@
-import { generateText, isStepCount, Output, tool } from "ai";
+import { generateText, isStepCount, Output, tool, type ToolSet } from "ai";
 import type { ResolvedModel } from "@/lib/narrate/model";
 import { appendEntry, type AuditEntry, type AuditInput } from "../audit";
 import { canonical } from "../range/generate";
@@ -12,12 +12,13 @@ import { TOOL_ALLOWLIST, type AnyTool } from "./tools";
 import { quoteUntrusted, type UntrustedSource } from "./untrusted";
 
 /**
- * The agent runtime. One run = one agent, one set of rules of engagement, one model, a handful of tools.
+ * The agent runtime. One run = one agent, one set of rules of engagement, a handful of tools, and either a model that decides what to
+ * call (`runAgent`) or a fixed plan (`runPlan`, used by deterministic agents). Both go through the same guarded path.
  *
  * Who holds what. The runtime holds the rules of engagement (a frozen private copy), the run state (steps, tokens, cost, kill flag,
  * ownership proofs), the budgets, the audit log and the kill hook. A tool holds nothing of those and cannot reach them: it gets an
- * input and an abort signal. The model holds nothing but its tool calls. So the only thing anyone can do to change what a run may
- * do is call a tool, and every call goes through `allow()` first.
+ * input and an abort signal. A model, or a plan, holds nothing but its tool calls. So the only thing anyone can do to change what a
+ * run may do is call a tool, and every call goes through `allow()` first.
  *
  * What a call goes through, in order: the tool is on this agent's allowlist; its input parses; an `intrusive` call waits for a human;
  * `allow()` decides (scope, window, budgets, kill switch, technique, target, ownership); the decision is written to the audit
@@ -33,18 +34,11 @@ export type ApprovalGate = (req: ApprovalRequest) => Promise<boolean>;
 
 export interface UntrustedContext { source: UntrustedSource; label: string; data: unknown }
 
-export interface AgentRunInput {
+/** Everything a run needs except a model and a task. */
+export interface RunSetup {
   roe: unknown;
   agent: Agent;
-  task: string;
-  /** agent-specific instructions, added after the base rules */
-  system?: string;
   tools: AnyTool[];
-  model: ResolvedModel;
-  /** the repository is private: no free-tier model */
-  private: boolean;
-  /** repository text, findings, advisories: quoted as untrusted data, never placed in the instructions */
-  context?: UntrustedContext[];
   knownRefs?: ReadonlySet<string>;
   knownNodeIds?: ReadonlySet<string>;
   /**
@@ -60,6 +54,17 @@ export interface AgentRunInput {
   teardown?: (() => void | Promise<void>)[];
   now?: () => number;
   toolTimeoutMs?: number;
+}
+
+export interface AgentRunInput extends RunSetup {
+  task: string;
+  /** agent-specific instructions, added after the base rules */
+  system?: string;
+  model: ResolvedModel;
+  /** the repository is private: no free-tier model */
+  private: boolean;
+  /** repository text, findings, advisories: quoted as untrusted data, never placed in the instructions */
+  context?: UntrustedContext[];
 }
 
 export interface AgentRunResult {
@@ -99,22 +104,44 @@ const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
 
 const targetOf = (t: { kind: string; rangeId?: string; url?: string }) => (t.kind === "range" ? t.rangeId ?? "" : t.url ?? "");
 
-export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
-  const now = input.now ?? Date.now;
+/** What a refused or failed call looks like to whoever made it. Our own words, never a tool's. */
+export type CallResult = { ok: true; step: number; result: unknown } | { ok: false; denied?: true; stopped?: true; reason?: string; detail?: string; error?: string };
+
+/** A started run. The only things a caller can do with it are make guarded calls, add a note, and end it. */
+export interface Run {
+  readonly roeHash: string;
+  readonly runId: string;
+  /** a guarded call by tool name: the same path a model's call takes */
+  call(toolName: string, input: unknown): Promise<CallResult>;
+  note(summary: string): void;
+  /** a conclusion, in the log: `ok` for one that stands, false for one that was set aside */
+  conclude(summary: string, ok: boolean): void;
+  /** can this run still do anything (kill switch, window, budgets)? */
+  active(): boolean;
+  /** the audit entry for a result of `call`, to cite */
+  entry(step: number): AuditEntry | undefined;
+  /** the end entry; unregisters, tears down, returns the result */
+  end(o?: { failed?: boolean; output?: unknown; knownRefs?: ReadonlySet<string>; knownNodeIds?: ReadonlySet<string> }): Promise<AgentRunResult>;
+  /** for the model loop */
+  _model: { sdkTools(): ToolSet; onStep(s: unknown): void; limitsHit(): boolean; signal: AbortSignal; wallMs: number; stepBudget: number; allowedTechniques: readonly string[] };
+}
+
+export type Started = { ok: true; run: Run } | { ok: false; result: AgentRunResult };
+
+export async function startRun(setup: RunSetup, modelCheck?: { id: string; private: boolean }): Promise<Started> {
+  const now = setup.now ?? Date.now;
   const startedAt = now();
-  const empty = (stopReason: StopReason, refusal: string, extra: Partial<AgentRunResult> = {}): AgentRunResult => ({
-    ok: false, stopReason, refusal, findings: [], dropped: [], audit: [], head: "", roeHash: "", usage: { steps: 0, tokens: 0, costUsd: 0, wallMs: 0 }, denies: {}, ...extra,
-  });
+  const refusedEarly = (refusal: string): Started => ({ ok: false, result: { ok: false, stopReason: "refused", refusal, findings: [], dropped: [], audit: [], head: "", roeHash: "", usage: { steps: 0, tokens: 0, costUsd: 0, wallMs: 0 }, denies: {} } });
 
   // The runtime's own private, frozen copy. Nothing that holds a reference to the object the caller passed can change it afterwards.
-  const parsed = parseRoe(input.roe);
-  if (!parsed.ok) return empty("refused", `The rules of engagement are not valid: ${parsed.errors[0]}`);
+  const parsed = parseRoe(setup.roe);
+  if (!parsed.ok) return refusedEarly(`The rules of engagement are not valid: ${parsed.errors[0]}`);
   const roe: Roe = deepFreeze(structuredClone(parsed.roe));
   const roeHash = sha256Hex(canonical(roe));
 
   const entries: AuditEntry[] = [];
   const log = (e: Omit<AuditInput, "ts" | "runId" | "agent"> & { agent?: AuditInput["agent"] }): AuditEntry => {
-    const entry = appendEntry(entries.at(-1), { ts: now(), runId: roe.runId, agent: e.agent ?? input.agent, ...e });
+    const entry = appendEntry(entries.at(-1), { ts: now(), runId: roe.runId, agent: e.agent ?? setup.agent, ...e });
     entries.push(entry);
     return entry;
   };
@@ -123,25 +150,26 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   const denies: Record<string, number> = {};
   const noteDeny = (reason: string) => { denies[reason] = (denies[reason] ?? 0) + 1; };
 
-  log({ agent: "system", kind: "roe", summary: `roe ${roeHash.slice(0, 16)} agent=${input.agent} repo=${roe.repo} targets=${roe.targets.map((t) => t.kind).join(",")}` });
+  log({ agent: "system", kind: "roe", summary: `roe ${roeHash.slice(0, 16)} agent=${setup.agent} repo=${roe.repo} targets=${roe.targets.map((t) => t.kind).join(",")}` });
 
-  const finish = (stopReason: StopReason, refusal?: string, findings: ValidatedFinding[] = [], dropped: DroppedFinding[] = []): AgentRunResult => {
+  const result = (stopReason: StopReason, refusal?: string, findings: ValidatedFinding[] = [], dropped: DroppedFinding[] = []): AgentRunResult => {
     const end = log({ agent: "system", kind: "end", summary: `stop=${stopReason} steps=${state.stepsUsed} tokens=${state.tokensUsed} cost=$${state.costUsd.toFixed(4)}${refusal ? ` refused: ${refusal}` : ""}` });
     return {
       ok: stopReason === "finished", stopReason, ...(refusal ? { refusal } : {}), findings, dropped, audit: [...entries], head: end.hash, roeHash,
       usage: { steps: state.stepsUsed, tokens: state.tokensUsed, costUsd: state.costUsd, wallMs: now() - startedAt }, denies,
     };
   };
+  const refuse = (reason: StopReason, why: string): Started => ({ ok: false, result: result(reason, why) });
 
   // ---- refuse to start, and say why in the log ----
-  if (!roe.agents.includes(input.agent)) return finish("refused", `The ${input.agent} agent is not part of this run.`);
-  const policy = modelPolicyError(input.model.id, input.private);
-  if (policy) return finish("refused", policy);
-  const allowed = new Set(TOOL_ALLOWLIST[input.agent]);
-  const bad = input.tools.find((t) => !allowed.has(t.name));
-  if (bad) return finish("refused", `The ${input.agent} agent may not be given the tool "${bad.name}".`);
+  if (!roe.agents.includes(setup.agent)) return refuse("refused", `The ${setup.agent} agent is not part of this run.`);
+  const policy = modelCheck ? modelPolicyError(modelCheck.id, modelCheck.private) : null;
+  if (policy) return refuse("refused", policy);
+  const allowed = new Set(TOOL_ALLOWLIST[setup.agent]);
+  const bad = setup.tools.find((t) => !allowed.has(t.name));
+  if (bad) return refuse("refused", `The ${setup.agent} agent may not be given the tool "${bad.name}".`);
   const pre = checkLimits(roe, now(), snapshot());
-  if (!pre.ok) return finish(STOP_FOR[pre.reason] === "killed" ? "killed" : "refused", pre.detail);
+  if (!pre.ok) return refuse(STOP_FOR[pre.reason] === "killed" ? "killed" : "refused", pre.detail);
 
   // ---- kill switch, teardown ----
   const ac = new AbortController();
@@ -149,9 +177,9 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   const teardown = async () => {
     if (tornDown) return;
     tornDown = true;
-    for (const fn of input.teardown ?? []) { try { await fn(); } catch { log({ agent: "system", kind: "note", summary: "a teardown step failed" }); } }
+    for (const fn of setup.teardown ?? []) { try { await fn(); } catch { log({ agent: "system", kind: "note", summary: "a teardown step failed" }); } }
   };
-  const registry = input.killRegistry ?? killRegistry();
+  const registry = setup.killRegistry ?? killRegistry();
   const unregister = registry.register({
     runId: roe.runId, repo: roe.repo, killSwitchId: roe.killSwitchId,
     async kill(reason) {
@@ -164,17 +192,17 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   for (const t of roe.targets) {
     if (t.kind !== "verified-domain") continue;
     let proved = false;
-    try { proved = input.verifyDomain ? await input.verifyDomain(t.domain) : false; } catch { proved = false; }
+    try { proved = setup.verifyDomain ? await setup.verifyDomain(t.domain) : false; } catch { proved = false; }
     if (proved) state.ownershipProvedAt[t.domain] = now();
     log({ agent: "system", kind: "note", summary: `ownership of ${t.domain} ${proved ? "proved" : "not proved"} at the start of this run` });
   }
 
-  const offered = new Map(input.tools.map((t) => [t.name, t]));
+  const offered = new Map(setup.tools.map((t) => [t.name, t]));
   let calls = 0;
 
   // ---- every tool call ----
-  async function guarded(t: AnyTool, raw: unknown): Promise<unknown> {
-    const refuse = (reason: string, detail: string, cls?: string, technique?: string, target?: string) => {
+  async function guarded(t: AnyTool, raw: unknown): Promise<CallResult> {
+    const refuseCall = (reason: string, detail: string, cls?: string, technique?: string, target?: string): CallResult => {
       log({ kind: "decision", decision: "deny", reason, tool: t.name, class: cls, technique, target, summary: detail });
       state.stepsUsed++;
       noteDeny(reason);
@@ -182,22 +210,22 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     };
 
     const arg = t.inputSchema.safeParse(raw);
-    if (!arg.success) return refuse("input-invalid", "The arguments did not match what the tool accepts.");
+    if (!arg.success) return refuseCall("input-invalid", "The arguments did not match what the tool accepts.");
     const i = arg.data;
     let action;
     try {
-      action = { id: `a${++calls}`, agent: input.agent, tool: t.name, class: t.classOf(i), technique: t.techniqueOf(i), target: t.targetOf(i) };
-    } catch { return refuse("action-invalid", "The tool could not describe this call, so it was refused."); }
+      action = { id: `a${++calls}`, agent: setup.agent, tool: t.name, class: t.classOf(i), technique: t.techniqueOf(i), target: t.targetOf(i) };
+    } catch { return refuseCall("action-invalid", "The tool could not describe this call, so it was refused."); }
     const tgt = targetOf(action.target as { kind: string; rangeId?: string; url?: string });
 
     // A human must say yes to an intrusive step BEFORE it is even considered. A yes is necessary, never sufficient: allow() still decides.
     if (action.class === "intrusive") {
       const live = checkLimits(roe, now(), snapshot());
-      if (!live.ok) return refuse(live.reason, live.detail, action.class, action.technique, tgt);
+      if (!live.ok) return refuseCall(live.reason, live.detail, action.class, action.technique, tgt);
       let yes = false;
-      try { yes = input.approve ? await withTimeout(input.approve({ runId: roe.runId, tool: t.name, class: action.class, target: tgt, summary: `${t.name} ${tgt}` }), input.approvalTimeoutMs ?? 60_000) : false; } catch { yes = false; }
+      try { yes = setup.approve ? await withTimeout(setup.approve({ runId: roe.runId, tool: t.name, class: action.class, target: tgt, summary: `${t.name} ${tgt}` }), setup.approvalTimeoutMs ?? 60_000) : false; } catch { yes = false; }
       log({ kind: "approval", decision: yes ? "allow" : "deny", tool: t.name, class: action.class, technique: action.technique, target: tgt, summary: yes ? "a person approved this step" : "no approval was given" });
-      if (!yes) return refuse("approval-denied", "This step needs a person's approval and did not get it.", action.class, action.technique, tgt);
+      if (!yes) return refuseCall("approval-denied", "This step needs a person's approval and did not get it.", action.class, action.technique, tgt);
     }
 
     const decision = allow(action, roe, now(), snapshot());
@@ -206,7 +234,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     if (!decision.ok) { noteDeny(decision.reason); return { ok: false, denied: true, reason: decision.reason, detail: decision.detail }; }
 
     const remaining = Math.max(1, roe.budgets.wallMs - (now() - startedAt));
-    const sig = AbortSignal.any([ac.signal, AbortSignal.timeout(Math.min(input.toolTimeoutMs ?? 30_000, remaining))]);
+    const sig = AbortSignal.any([ac.signal, AbortSignal.timeout(Math.min(setup.toolTimeoutMs ?? 30_000, remaining))]);
     try {
       const output = await Promise.race([
         t.run(i, Object.freeze({ signal: sig })),
@@ -224,11 +252,79 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     }
   }
 
-  const sdkTools = Object.fromEntries(input.tools.map((t) => [t.name, tool({ description: t.description, inputSchema: t.inputSchema as never, execute: (raw: unknown) => guarded(t, raw) })]));
-
-  // ---- the model loop ----
   let limitStop: StopReason | null = null;
   const limitsHit = () => { const d = checkLimits(roe, now(), snapshot()); if (!d.ok) { limitStop = STOP_FOR[d.reason] ?? "refused"; return true; } return false; };
+  let model: string | undefined;
+
+  const run: Run = {
+    roeHash, runId: roe.runId,
+    async call(toolName, input) {
+      const t = offered.get(toolName);
+      if (!t) { log({ kind: "decision", decision: "deny", reason: "tool-not-allowed", tool: toolName.slice(0, 64), summary: "no such tool for this agent" }); state.stepsUsed++; noteDeny("tool-not-allowed"); return { ok: false, denied: true, reason: "tool-not-allowed", detail: "no such tool for this agent" }; }
+      return guarded(t, input);
+    },
+    note(summary) { log({ agent: "system", kind: "note", summary }); },
+    conclude(summary, ok) { log({ kind: "finding", decision: ok ? "allow" : "deny", ...(ok ? {} : { reason: "set-aside" }), summary }); },
+    active() { return checkLimits(roe, now(), snapshot()).ok; },
+    entry(step) { return entries.find((e) => e.seq === step); },
+    _model: {
+      sdkTools: () => Object.fromEntries(setup.tools.map((t) => [t.name, tool({ description: t.description, inputSchema: t.inputSchema as never, execute: (raw: unknown) => guarded(t, raw) })])) as ToolSet,
+      onStep: (s) => {
+        const step = s as { usage?: { inputTokens?: number; outputTokens?: number }; toolCalls?: { toolName: string; invalid?: boolean }[] };
+        const inT = step.usage?.inputTokens ?? 0, outT = step.usage?.outputTokens ?? 0;
+        state.tokensUsed += inT + outT;
+        if (model) state.costUsd += costUsd(model, inT, outT);
+        // calls the SDK refused before they reached us (a tool nobody offered, or arguments that did not parse) are still attempts
+        for (const c of step.toolCalls ?? []) {
+          if (!offered.has(c.toolName)) { log({ kind: "decision", decision: "deny", reason: "tool-not-allowed", tool: c.toolName.slice(0, 64), summary: "no such tool for this agent" }); state.stepsUsed++; noteDeny("tool-not-allowed"); }
+          else if (c.invalid) { log({ kind: "decision", decision: "deny", reason: "input-invalid", tool: c.toolName, summary: "the arguments did not match what the tool accepts" }); state.stepsUsed++; noteDeny("input-invalid"); }
+        }
+      },
+      limitsHit,
+      signal: AbortSignal.any([ac.signal, AbortSignal.timeout(roe.budgets.wallMs)]),
+      wallMs: roe.budgets.wallMs,
+      stepBudget: roe.budgets.steps,
+      allowedTechniques: roe.allowedTechniques,
+    },
+    async end(o = {}) {
+      unregister();
+      await teardown();
+      let reason: StopReason = "finished";
+      const after = checkLimits(roe, now(), snapshot());
+      if (state.killed) reason = "killed";
+      else if (limitStop) reason = limitStop;
+      else if (!after.ok) reason = STOP_FOR[after.reason] ?? "refused";
+      else if (o.failed) reason = "model-error";
+
+      let kept: ValidatedFinding[] = [], dropped: DroppedFinding[] = [];
+      if (o.output !== undefined) {
+        const v = validateFindings(o.output, { audit: entries, knownRefs: o.knownRefs, knownNodeIds: o.knownNodeIds, allowedTechniques: roe.allowedTechniques });
+        kept = v.kept; dropped = v.dropped;
+        for (const f of kept) log({ kind: "finding", decision: "allow", technique: f.technique, summary: `${f.severity}: ${f.title}` });
+        for (const d of dropped) log({ kind: "finding", decision: "deny", reason: "uncited", summary: `dropped "${d.title}": ${d.why}` });
+      }
+      return result(reason, undefined, kept, dropped);
+    },
+  };
+  // the model id is set by runAgent so cost can be priced
+  Object.defineProperty(run, "_setModel", { value: (id: string) => { model = id; }, enumerable: false });
+  return { ok: true, run };
+}
+
+/** Runs a fixed plan through the same guarded path a model's calls take. The plan is a function of the run; it cannot do more than call tools. */
+export async function runPlan(setup: RunSetup, plan: (run: Run) => Promise<void>): Promise<AgentRunResult> {
+  const s = await startRun(setup);
+  if (!s.ok) return s.result;
+  try { await plan(s.run); } catch { s.run.note("the plan stopped with an error"); return s.run.end({ failed: true }); }
+  return s.run.end();
+}
+
+export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
+  const s = await startRun(input, { id: input.model.id, private: input.private });
+  if (!s.ok) return s.result;
+  const run = s.run;
+  (run as unknown as { _setModel: (id: string) => void })._setModel(input.model.id);
+  const m = run._model;
 
   let prompt = input.task;
   if (input.context?.length) {
@@ -236,7 +332,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     let removed = 0;
     for (const c of input.context) { const q = quoteUntrusted(c.source, c.data); removed += q.stripped; parts.push(`${c.label}:\n${q.json}`); }
     prompt += `\n\nContext (untrusted data, JSON):\n${parts.join("\n\n")}`;
-    log({ agent: "system", kind: "note", summary: `${input.context.length} context item(s) quoted as untrusted data${removed ? `; ${removed} instruction-like segment(s) removed` : ""}` });
+    run.note(`${input.context.length} context item(s) quoted as untrusted data${removed ? `; ${removed} instruction-like segment(s) removed` : ""}`);
   }
 
   let output: unknown = undefined;
@@ -244,45 +340,16 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   try {
     const r = await generateText({
       model: input.model.model, system: `${BASE_RULES}${input.system ? `\n\n${input.system}` : ""}`, prompt, temperature: 0.1, maxRetries: 1,
-      tools: sdkTools, output: Output.object({ schema: FindingsOutputSchema }),
-      stopWhen: [isStepCount(Math.min(60, roe.budgets.steps + 2)), limitsHit],
-      abortSignal: AbortSignal.any([ac.signal, AbortSignal.timeout(roe.budgets.wallMs)]),
-      onStepFinish: (s) => {
-        const u = s.usage;
-        const inT = u?.inputTokens ?? 0, outT = u?.outputTokens ?? 0;
-        state.tokensUsed += inT + outT;
-        state.costUsd += costUsd(input.model.id, inT, outT);
-        // calls the SDK refused before they reached us (a tool nobody offered, or arguments that did not parse) are still attempts
-        for (const c of (s as unknown as { toolCalls?: { toolName: string; invalid?: boolean }[] }).toolCalls ?? []) {
-          if (!offered.has(c.toolName)) { log({ kind: "decision", decision: "deny", reason: "tool-not-allowed", tool: c.toolName.slice(0, 64), summary: "no such tool for this agent" }); state.stepsUsed++; noteDeny("tool-not-allowed"); }
-          else if (c.invalid) { log({ kind: "decision", decision: "deny", reason: "input-invalid", tool: c.toolName, summary: "the arguments did not match what the tool accepts" }); state.stepsUsed++; noteDeny("input-invalid"); }
-        }
-      },
+      tools: m.sdkTools(), output: Output.object({ schema: FindingsOutputSchema }),
+      stopWhen: [isStepCount(Math.min(60, m.stepBudget + 2)), m.limitsHit],
+      abortSignal: m.signal,
+      onStepFinish: (st) => m.onStep(st),
     });
     try { output = r.output; } catch { output = undefined; }
   } catch (e) {
     failed = true;
     // a short, redacted reason (the log cleans and cuts it), so "the model call failed" is never a mystery
-    log({ agent: "system", kind: "note", summary: `model call failed: ${e instanceof Error ? e.message : "unknown error"}` });
-  } finally {
-    unregister();
-    await teardown();
+    run.note(`model call failed: ${e instanceof Error ? e.message : "unknown error"}`);
   }
-
-  // why it ended
-  let reason: StopReason = "finished";
-  const after = checkLimits(roe, now(), snapshot());
-  if (state.killed) reason = "killed";
-  else if (limitStop) reason = limitStop;
-  else if (!after.ok) reason = STOP_FOR[after.reason] ?? "refused";
-  else if (failed) reason = "model-error";
-
-  let kept: ValidatedFinding[] = [], dropped: DroppedFinding[] = [];
-  if (output !== undefined) {
-    const v = validateFindings(output, { audit: entries, knownRefs: input.knownRefs, knownNodeIds: input.knownNodeIds, allowedTechniques: roe.allowedTechniques });
-    kept = v.kept; dropped = v.dropped;
-    for (const f of kept) log({ kind: "finding", decision: "allow", technique: f.technique, summary: `${f.severity}: ${f.title}` });
-    for (const d of dropped) log({ kind: "finding", decision: "deny", reason: "uncited", summary: `dropped "${d.title}": ${d.why}` });
-  }
-  return finish(reason, undefined, kept, dropped);
+  return run.end({ failed, output, knownRefs: input.knownRefs, knownNodeIds: input.knownNodeIds });
 }

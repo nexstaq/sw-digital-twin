@@ -178,6 +178,11 @@ Git history scanning (a secret removed from HEAD is not found), real taint track
 call at a time), Java/Go/Ruby/Rust code rules, Rust/Java/Ruby dependency reachability, OSV rate-limit retry, and a
 true server-side PDF (use the browser's Save as PDF).
 
+## Verify by simulation (X4)
+A maintainer can try each code finding against a simulated copy of the system from the Security page: can an outside request reach it, what does it reach, and, only if they allow reading
+source, is there visible protection in the code. The verdict sits on the finding as evidence (it reorders "fix first", never a severity or the score) and never carries source. Full
+description, limits and the privacy rules: `docs/SIMULATION.md`, section X4.
+
 ## Testing
 Unit: each analyzer, mapping, scoring (`src/lib/security/**`). Real OSV was used once by hand to validate parsing and scores
 (it exposed duplicate advisories, now merged). E2E: `e2e/vulnerabilities.spec.ts` against a mock OSV and a fixture repo whose secrets

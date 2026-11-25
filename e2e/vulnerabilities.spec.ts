@@ -121,7 +121,8 @@ test.describe("security analysis", () => {
     await expect(paths).toBeVisible();
     const card = paths.getByRole("listitem").filter({ hasText: "Data & messaging" }).first();
     await expect(card).toContainText("acme-shop");
-    await expect(card).toContainText("1 public endpoint in acme-shop, 1 of which accepts writes with no authentication check");
+    // the fixture has three public routes (orders, files, invoices); only orders accepts writes, and it has no authentication check
+    await expect(card).toContainText("3 public endpoints in acme-shop, 1 of which accepts writes with no authentication check");
     await expect(card).toContainText("Reaches Data & messaging (reads)");
     await expect(card).toContainText("via web");
     // hosting is not an attack route: no path ends at the environment the service is deployed to

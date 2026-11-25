@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Loader2, Locate, Sparkles, X } from "lucide-react";
 import type { Finding } from "@/lib/security/types";
 import { CATEGORY_LABEL, SeverityBadge, isRepoFile, sourceLabel, where } from "./securityUi";
+import { SimulationDetail } from "./SimulationDetail";
 
 type Explained = { id: string; state: "loading" } | { id: string; state: "ok"; e: { summary: string; attack: string; steps: string[]; effort: string; model: string } } | { id: string; state: "off"; message: string };
 interface Snippet { sha: string; highlight: number; lines: { n: number; text: string }[]; redacted?: string }
@@ -91,6 +92,8 @@ export function FindingPanel({ finding: f, repo, sha, onClose, onLocate }: { fin
               )}
           </section>
         )}
+
+        {f.simulation && <SimulationDetail f={f} repo={repo} />}
 
         <section aria-label="AI explanation">
           {!explained ? (

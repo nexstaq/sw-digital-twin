@@ -8,6 +8,7 @@ import type { AttackPath } from "@/lib/security/paths";
 import { CATEGORIES, type Category, type Finding, type FindingSet } from "@/lib/security/types";
 import { CATEGORY_LABEL, FindingRow, GradeRing, SeverityBar, SeverityBadge, TrendLine } from "./securityUi";
 import { SecuritySources } from "./SecuritySources";
+import { SimulationSection } from "./SimulationSection";
 import { StandardsPanel } from "./StandardsPanel";
 
 /** The at-a-glance card: grade, severity mix, category filter that recolours the map, and the few things to fix first. */
@@ -33,10 +34,11 @@ function PathCard({ p, label, active, onShow }: { p: AttackPath; label: (id: str
   );
 }
 
-export function PosturePanel({ onImported, repo, set, filter, onFilter, visible, onOpen, onScan, scanning, scanError, paths, label, activePath, onShowPath }: {
+export function PosturePanel({ onImported, repo, set, filter, onFilter, visible, onOpen, onScan, scanning, scanError, paths, label, activePath, onShowPath, sim }: {
   set: FindingSet | null; filter: Category | null; onFilter: (c: Category | null) => void; visible: Finding[];
   onOpen: (f: Finding) => void; onScan: () => void; scanning: boolean; scanError: string | null; repo: string; onImported: () => void;
   paths: AttackPath[]; label: (id: string) => string; activePath: string | null; onShowPath: (p: AttackPath) => void;
+  sim: { simulating: boolean; error: string | null; onSimulate: (source: boolean) => void; onStop: () => void };
 }) {
   const [morePaths, setMorePaths] = useState(false);
   const p = computePosture(set?.findings ?? [], !!set);
@@ -77,6 +79,8 @@ export function PosturePanel({ onImported, repo, set, filter, onFilter, visible,
           <div className="space-y-1.5">{top.map((f) => <FindingRow key={f.id} f={f} onOpen={onOpen} isNew={newIds.has(f.id)} />)}</div>
         </section>
       )}
+
+      {set && <SimulationSection set={set} simulating={sim.simulating} error={sim.error} onSimulate={sim.onSimulate} onStop={sim.onStop} />}
 
       {set && paths.length > 0 && (
         <section aria-label="Attack paths">

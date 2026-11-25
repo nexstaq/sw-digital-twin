@@ -1,7 +1,7 @@
 "use client";
 
-import { Info, OctagonX, ShieldAlert, TriangleAlert, type LucideIcon } from "lucide-react";
-import { SEVERITIES, type Category, type Finding, type Severity } from "@/lib/security/types";
+import { CircleHelp, FlaskConical, Info, OctagonX, ShieldAlert, ShieldCheck, TriangleAlert, Unlink, type LucideIcon } from "lucide-react";
+import { SEVERITIES, type Category, type Finding, type Severity, type Simulation } from "@/lib/security/types";
 import type { Posture } from "@/lib/security/map";
 
 /** Every severity has a shape AND a word, never colour alone. */
@@ -22,6 +22,23 @@ export function SeverityBadge({ severity, compact }: { severity: Severity; compa
 
 export const where = (f: Pick<Finding, "path" | "line">) => (f.line ? `${f.path}:${f.line}` : f.path);
 
+/** What the simulation concluded, with a shape and a word (never colour alone). It is evidence, not proof, and the label says so. */
+export const SIM: Record<Simulation["verdict"], { label: string; short: string; Icon: LucideIcon; cls: string }> = {
+  confirmed: { label: "Confirmed by simulation", short: "Confirmed", Icon: FlaskConical, cls: "border-accent/60 bg-accent/10 text-accent" },
+  mitigated: { label: "Looks mitigated", short: "Looks mitigated", Icon: ShieldCheck, cls: "border-nominal/60 bg-nominal/10 text-nominal" },
+  unreachable: { label: "Not reachable on the map", short: "Not reachable", Icon: Unlink, cls: "border-line bg-raised text-ink-dim" },
+  "not-reproduced": { label: "Not reproduced", short: "Not reproduced", Icon: CircleHelp, cls: "border-line bg-raised text-ink-dim" },
+};
+
+export function SimBadge({ sim, compact }: { sim: Simulation; compact?: boolean }) {
+  const s = SIM[sim.verdict];
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-medium ${s.cls}`} title={`${s.label} (${sim.confidence} confidence)`}>
+      <s.Icon size={11} aria-hidden />{compact ? s.short : s.label}<span className="text-ink-faint"> · {sim.confidence}</span>
+    </span>
+  );
+}
+
 /** One finding as a row: what, how bad, where. `isNew` marks one that was not in the previous scan. */
 export function FindingRow({ f, onOpen, isNew }: { f: Finding; onOpen: (f: Finding) => void; isNew?: boolean }) {
   return (
@@ -30,6 +47,7 @@ export function FindingRow({ f, onOpen, isNew }: { f: Finding; onOpen: (f: Findi
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs text-ink">{isNew && <span className="mr-1.5 rounded bg-accent/20 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-accent">New</span>}{f.title}</span>
         <span className="block truncate font-mono text-[11px] text-ink-faint">{where(f)}</span>
+        {f.simulation && <span className="mt-1 block"><SimBadge sim={f.simulation} compact /></span>}
       </span>
     </button>
   );

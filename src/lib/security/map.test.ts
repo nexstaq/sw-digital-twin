@@ -137,3 +137,29 @@ describe("findingsUnder", () => {
     expect(findingsUnder(GRAPH, fs, home, "api")).toEqual([]);
   });
 });
+
+describe("what the simulation changes, and what it must not", () => {
+  const sim = (verdict: "confirmed" | "mitigated" | "unreachable" | "not-reproduced") => ({ verdict, confidence: "medium" as const, summary: "s", reaches: [], steps: [1], source: { read: false }, runId: "r", head: "h", verifiedAt: 1 });
+  const twin = (verdict?: Parameters<typeof sim>[0]) => F("x", "a.ts", "medium", { confidence: "medium", ...(verdict ? { simulation: sim(verdict) } : {}) });
+
+  it("a confirmed finding outranks an otherwise identical one, and a likely false alarm or unreachable one ranks below it", () => {
+    const base = F("p", "m.ts", "medium", { confidence: "medium" });
+    const confirmed = { ...twin("confirmed"), id: "c", path: "z.ts" }, mitigated = { ...twin("mitigated"), id: "m", path: "a.ts" }, unreachable = { ...twin("unreachable"), id: "u", path: "b.ts" };
+    // with no verdicts the tie is broken by path, so a.ts comes first; the verdicts must be what changes the order
+    expect([{ ...base, path: "z.ts" }, { ...base, path: "a.ts" }].sort(byPriority).map((f) => f.path)).toEqual(["a.ts", "z.ts"]);
+    expect([confirmed, mitigated, unreachable].sort(byPriority).map((f) => f.id)).toEqual(["c", "m", "u"]);
+    expect(byPriority(confirmed, mitigated)).toBeLessThan(0);
+    expect(byPriority(mitigated, { ...base, path: "a.ts" })).toBeGreaterThan(0);
+  });
+  it("a verdict that is neither (not reproduced) leaves the order alone", () => {
+    const a = { ...twin("not-reproduced"), id: "a", path: "a.ts" }, b = { ...twin(), id: "b", path: "b.ts" };
+    expect(byPriority(a, b)).toBeLessThan(0); // path order, as with no verdict at all
+  });
+  it("never moves the safety score or the grade: priority() ignores the verdict, and so does posture()", () => {
+    const plain = [twin(), { ...twin(), id: "y", severity: "high" as const }];
+    const judged = [twin("mitigated"), { ...twin("confirmed"), id: "y", severity: "high" as const }];
+    expect(priority(judged[0])).toBe(priority(plain[0]));
+    expect(posture(judged)).toEqual(posture(plain));
+  });
+  it("never changes a severity", () => { expect(twin("mitigated").severity).toBe("medium"); });
+});

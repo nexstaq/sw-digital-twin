@@ -60,7 +60,12 @@ export function buildRange(snap: { sha: string; graph: TwinGraph }, set: Finding
   // 1. which nodes become emulators: concrete runtime parts and CI jobs, not the level-0 clusters that only group them
   // A level-0 block that only groups things is not emulated; a level-0 job that has stages IS a workflow. A route group is not
   // emulated, but an endpoint that is a single named entry point (no routes inside it) is: it can be walked like any service.
-  const isCluster = (n: TwinNode) => n.level === 0 && hasKids.has(n.id) && n.kind !== "job";
+  // A top-level SERVICE that directly holds routes is a real service (a small repository is one package with its routes inside), not a grouping.
+  const kidsOf = new Map<string, TwinNode[]>();
+  for (const n of graph.nodes) if (n.parentId) (kidsOf.get(n.parentId) ?? kidsOf.set(n.parentId, []).get(n.parentId)!).push(n);
+  // "Directly holds routes" means its children are routes (and files), with no other services or data inside it: that would make it a grouping.
+  const holdsRoutes = (n: TwinNode) => { const k = kidsOf.get(n.id) ?? []; return n.kind === "service" && k.some((c) => c.kind === "endpoint") && !k.some((c) => ["service", "datastore", "queue", "external", "job", "env"].includes(c.kind)); };
+  const isCluster = (n: TwinNode) => n.level === 0 && hasKids.has(n.id) && n.kind !== "job" && !holdsRoutes(n);
   const isRoute = (n: TwinNode) => n.kind === "endpoint" && ROUTE.test(n.label);
   const emulated = graph.nodes.filter((n) => EMULATED.has(n.kind) && !isCluster(n) && (n.kind !== "endpoint" || isRoute(n) || !hasKids.has(n.id)));
   const emuIds = new Set(emulated.map((n) => n.id));
@@ -126,7 +131,19 @@ export function buildRange(snap: { sha: string; graph: TwinGraph }, set: Finding
     };
   }).sort((a, b) => a.nodeId.localeCompare(b.nodeId));
 
-  const edges = graph.edges.filter((e) => emuIds.has(e.from) && emuIds.has(e.to)).map((e) => ({ id: e.id, from: e.from, to: e.to, kind: e.kind })).sort((a, b) => a.id.localeCompare(b.id));
+  // An edge to a grouping block ("reads the data stores") means the things inside it: the data stores, queues and outside services in
+  // that group. Edges FROM a group are not expanded (which member does the calling is not known).
+  const ASSET = new Set(["datastore", "queue", "external"]);
+  const assetsIn = (id: string, seen = new Set<string>()): string[] => {
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return (kidsOf.get(id) ?? []).flatMap((k) => (emuIds.has(k.id) && ASSET.has(k.kind) ? [k.id] : assetsIn(k.id, seen)));
+  };
+  const edges = graph.edges.flatMap((e) => {
+    if (!emuIds.has(e.from)) return [];
+    if (emuIds.has(e.to)) return [{ id: e.id, from: e.from, to: e.to, kind: e.kind }];
+    return assetsIn(e.to).map((to) => ({ id: `${e.id}>${to}`, from: e.from, to, kind: e.kind }));
+  }).sort((a, b) => a.id.localeCompare(b.id));
 
   const body = { version: 1 as const, repo: graph.repo, sha: snap.sha, seed: opts.seed ?? 1, emulators, endpoints, datastores, edges, weaknesses, notes };
   const specHash = sha(canonical(body)).slice(0, 16);

@@ -47,6 +47,7 @@ export const LIMITS = {
   badge: { name: "badge", max: 120, windowMs: 60_000 },
   verdict: { name: "verdict", max: 60, windowMs: 60_000 },
   secscan: { name: "secscan", max: 3, windowMs: 60_000 },
+  simulate: { name: "simulate", max: 3, windowMs: 60_000 },
   snippet: { name: "snippet", max: 60, windowMs: 60_000 },
   import: { name: "import", max: 10, windowMs: 60_000 },
   explain: { name: "explain", max: 10, windowMs: 60_000 },

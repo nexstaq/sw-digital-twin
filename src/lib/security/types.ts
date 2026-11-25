@@ -19,6 +19,42 @@ export type Vuln = z.infer<typeof Vuln>;
  * One thing worth fixing, pinned to where it lives. Never carries source code or a secret's value: only where it is, what it
  * is, why it matters and what to do. The code excerpt is fetched from GitHub when someone opens the finding.
  */
+/**
+ * What the simulation (the white-box agent) concluded about one finding. Never carries source code: the test is a request
+ * sequence, and a proposed patch is only described here (its diff is made again, on demand, from the maintainer's own access).
+ * A verdict is evidence, not proof, and it changes how a finding is ranked, never its severity or the safety score.
+ */
+export const SimulationSchema = z.object({
+  verdict: z.enum(["confirmed", "mitigated", "unreachable", "not-reproduced"]),
+  confidence: z.enum(["high", "medium", "low"]),
+  /** one plain-English sentence */
+  summary: z.string(),
+  /** labels of the blocks the exploit reached (service-level, so an over-approximation) */
+  reaches: z.array(z.string()),
+  /** the exploit test, as a replayable request sequence against the simulated copy */
+  test: z.object({
+    entry: z.string(),
+    role: z.enum(["anonymous", "user", "admin"]),
+    payloadClass: z.string().optional(),
+    technique: z.string(),
+    steps: z.array(z.object({
+      name: z.enum(["baseline", "exploit", "control"]),
+      request: z.object({ method: z.string(), path: z.string(), role: z.string(), payloadClass: z.string().optional() }),
+      expect: z.string(),
+    })),
+  }).optional(),
+  /** audit-log steps of the results this verdict rests on */
+  steps: z.array(z.number()),
+  source: z.object({ read: z.boolean(), mitigation: z.string().optional() }),
+  /** a patch was proposed and the same test, run against a copy without the weakness, was refused */
+  patch: z.object({ kind: z.enum(["parameterise-query", "confine-path"]), retest: z.enum(["rejected", "still-exploited"]) }).optional(),
+  runId: z.string(),
+  /** the head of that run's audit log, so the log can be checked later */
+  head: z.string(),
+  verifiedAt: z.number(),
+});
+export type Simulation = z.infer<typeof SimulationSchema>;
+
 export const FindingSchema = z.object({
   /** stable across line shifts, so "new" vs "already known" can be told apart between scans */
   id: z.string(),
@@ -58,6 +94,8 @@ export const FindingSchema = z.object({
     /** other lines that share this finding (e.g. the same unpinned action used 3 times) */
     lines: z.array(z.number()).optional(),
   }).default({}),
+  /** set by "verify by simulation"; absent means nobody has tried */
+  simulation: SimulationSchema.optional(),
 });
 export type Finding = z.infer<typeof FindingSchema>;
 
@@ -91,6 +129,8 @@ export const FindingSetSchema = z.object({
     /** CI provenance (workflow run that pushed it) */
     by: z.object({ ref: z.string().optional(), workflow: z.string().optional(), runId: z.string().optional(), actor: z.string().optional() }).optional(),
   })).optional(),
+  /** the last "verify by simulation" run over these findings */
+  simulated: z.object({ at: z.number(), runId: z.string(), head: z.string(), sourceRead: z.boolean(), counts: z.record(z.string(), z.number()), notes: z.array(z.string()) }).optional(),
   /** what could not be checked (OSV unreachable, scan capped, …): never silently "all clear" */
   warnings: z.array(z.string()),
 });

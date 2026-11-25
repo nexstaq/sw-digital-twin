@@ -69,7 +69,16 @@ export function priority(f: Finding): number {
   if (f.category === "dependency" && f.detail.usedIn?.length) p *= 1.25; // imported by your code: reachable
   return p;
 }
-export const byPriority = (a: Finding, b: Finding) => priority(b) - priority(a) || SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.path.localeCompare(b.path) || (a.line ?? 0) - (b.line ?? 0);
+/**
+ * The order of the "fix first" list: priority, nudged by what the simulation found. Confirmed and reachable goes up; looks mitigated or
+ * unreachable goes down. It is deliberately NOT part of `priority()`: a simulation verdict is evidence, not proof, so it may reorder the
+ * list but must never move the safety score or grade.
+ */
+export function rank(f: Finding): number {
+  const v = f.simulation?.verdict;
+  return priority(f) * (v === "confirmed" ? 1.25 : v === "mitigated" || v === "unreachable" ? 0.5 : 1);
+}
+export const byPriority = (a: Finding, b: Finding) => rank(b) - rank(a) || SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.path.localeCompare(b.path) || (a.line ?? 0) - (b.line ?? 0);
 
 export interface Posture {
   /** 0..100, higher is safer */

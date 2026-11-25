@@ -1,7 +1,7 @@
 # Simulation and adversary emulation: spec, threat model, rules of engagement (X0)
 
-Status: **X0, X1, X2 and X3 done.** `src/lib/sim/` has the rules of engagement, scope guard and audit log (X0), the range (`range/`, X1) the simulator behind the Simulate lens (`simulate/`, X2, with `src/components/twin/SimulatePanel.tsx`) and the agent runtime (`agent/`, X3). **No actual agent (X4 to X6), server route, approval screen or stored run exists yet.**
-Everything below that says "must" is a requirement on a later prompt (X4 to X10, see `PROMPTS-SIM.md`), not a description of working behaviour.
+Status: **X0 to X4 done.** `src/lib/sim/` has the rules of engagement, scope guard and audit log (X0), the range (`range/`, X1) the simulator behind the Simulate lens (`simulate/`, X2, with `src/components/twin/SimulatePanel.tsx`) the agent runtime (`agent/`, X3) and the first agent, the white-box agent (`whitebox/`, X4, with its route and Security-page UI). **The gray-box and red-team agents (X5, X6), an approval screen and a real network transport do not exist yet.**
+Everything below that says "must" is a requirement on a later prompt (X5 to X10, see `PROMPTS-SIM.md`), not a description of working behaviour.
 The decision behind it is `docs/adr/0001-simulation-boundary.md`.
 
 ## What we are building, in one paragraph
@@ -178,6 +178,49 @@ the model saw, the log, the result or the console. A real target in the log has 
 **Not done in X3.** Every test uses a scripted model, so nothing here says how a real model behaves or how good its findings are (X10 evals). Nothing stores the log or its head hash, so the head cannot yet be checked later. No per-repo or global limit on how many runs, or how much they spend, in total. No screen for a person to approve or stop a run (X8). The real network transport for the gray-box
 probe is not written (X9; it must reuse the S4 code). The sanitiser's pattern list is a starting point.
 
+## X4: the white-box agent (`src/lib/sim/whitebox/`, "Verify by simulation" on the Security page)
+
+**It is deterministic: no model is called.** The agent plans, runs and judges with code, through the same guarded path as every agent (X3), so each step is checked, logged and counted. A model
+adds little to proving a weakness class against a range whose behaviour is a table lookup, and a model-free run is repeatable, free and private. A model-assisted variant (exploring, writing patches) is
+backlog B25 and can reuse the same tools.
+
+**What a verdict can and cannot say.** The range is built *from the scanner's own findings*, so exploiting it cannot independently prove the code is vulnerable. That would be circular. What the
+simulation adds is:
+- whether an outside request can **reach** this weakness through the modelled architecture and its sign-in rules (and which blocks the service behind it can then reach);
+- a **repeatable test**; and
+- with source (only if a maintainer allowed it), whether a **mitigation is visible**, which is how a false alarm gets downgraded.
+
+Every verdict and the Security page say so. It reorders the fix-first list; it never changes a severity, and never moves the safety score or grade (tested).
+
+| Verdict | Meaning | Confidence |
+|---|---|---|
+| `confirmed` | the exploit test was reproduced against the range and the controls behaved | high only if source was read, no protection was seen and the scanner was at least medium sure; otherwise medium (low if the scanner was low) |
+| `mitigated` | reproduced, but the lines read show the input being made safe (forced to a number, a path confined) | low: "probably a false alarm; read the code" |
+| `unreachable` | nothing exposed on the map reaches the code | low: a missing edge in the map is a missing path, not a safe one |
+| `not-reproduced` | the test could not be run or the range did not behave as the finding says | low |
+
+Findings it cannot exercise (dependencies, secrets, containers, pipeline findings, anything with no emulation) are returned exactly as they were and counted in the run's notes. It never adds noise to them.
+
+**The test.** For a weakness a request can exercise: a *baseline* (an ordinary request works and shows none of this weakness), the *exploit* (the payload class comes back with a proof marker) and a *control* (a different kind of hostile input, one this route has no
+weakness for, is rejected). For an open write route: an anonymous write is accepted and a signed-in one shows no weakness. It runs as a signed-in user where the route needs one, so it tests the weakness, not the sign-in rule. The test is stored as a request sequence (route, role, payload class), never as code.
+
+**Source, only if a maintainer allows it.** A checkbox on the Security page, off by default, per run. With it on, the server reads about 25 lines around each exercised finding with the person's own GitHub access, redacts secrets, checks them for a mitigation, and proposes a patch. Nothing it reads is stored, logged or sent to a model.
+
+**Patches are diffs to read, never applied.** Two templates, on one line of JavaScript or TypeScript: SQL in a template string becomes placeholders and a values list; a `path.join` with request data gets `path.basename` around the request part. Each diff is checked before anyone sees it (one hunk, the finding's own file, at most 10 changed lines, no added link, secret, import, `require`, `eval` or `child_process`). Then the same test is run against a copy of the range with that weakness removed. If it is refused, the stored note says "the test tells the two apart". **That is all it shows: not that the patch compiles or is complete.** A diff contains source, so it is not stored: it is made again, on request, from the file at the scanned commit, and only if the last run was allowed to read source.
+
+**What is stored.** On each finding: `simulation` (verdict, confidence, one sentence, which blocks it reaches, the test, the audit steps it rests on, whether source was read, the patch kind and re-test result, run id, the log's head hash, when). On the set: `simulated` (when, counts, notes). No source, no diff (tested against the fixture's own code, in the stored data, the audit log and a SARIF report). Every claim cites steps that are real `tool-result` entries in the run's audit log, which verifies against its head. A rescan replaces the findings and so the verdicts.
+
+**The route.** `POST /api/security/simulate?repo=` (maintainers only: push access, rate limited, bot-checked, one run per repository at a time); `GET /api/security/simulate/patch?repo=&finding=` for a diff; `DELETE /api/security/simulate?repo=` is the kill switch. The rules of engagement are range-only, one technique (T1190), no model time, no money, so no approval is needed. Anonymous callers are refused at every door (e2e).
+
+**Things found by running it on the real fixture, all fixed and tested:**
+- *The range did not work on a real scan of a small repository.* There the service is a top-level node holding its routes, and the database sits inside a top-level group. The range treated any top-level node with children as a grouping (so the service was not emulated) and lost the edge to the database (so exploiting SQL injection reached nothing). A top-level service that holds only routes is now a service, and an edge to a group means the data stores, queues and outside services inside it.
+- *The main SQL injection was reported "not reproduced".* The same route is also the open write route, so an ordinary request to it correctly shows the other weakness's marker; the baseline wrongly demanded no marker at all. The check is now about this weakness's marker only.
+- *A second real weakness in the same file would sink the first,* because the control payload could be that second weakness. The control now uses a kind the route has no weakness for.
+- *Two findings of the same kind in one route file:* the route answers with the first one's marker, so the second looked "not reproduced". Any marker of that kind on that route now counts.
+- The e2e fixture gained two routes (a path traversal, and a route that looks like SQL injection but forces its id to a number: the seeded false alarm), so one existing test's endpoint count (1 to 3) was updated.
+
+**Not done.** Only code weaknesses reachable by a request, and open write routes, are exercised: pipeline injection needs a workflow tool the agent does not have, and the rest have no emulation. "Reaches" is the service's dependencies (the range gives every route of a service the service's dependencies), so it over-approximates. The mitigation check reads about 25 lines of one file and can miss or misread (it errs toward "not mitigated"). Patch templates: two kinds, one line, JS/TS only. The stop switch is an in-process registry, so on several server instances it only reaches runs on the instance that got the request. The run happens inside the request (60 s), not as a durable job (B1). Tested with the fixture and a fake store only; not run against a real repository on GitHub.
+
 ## Threat model of this feature
 
 STRIDE plus abuse cases. "Done" means a test exists in X0. Everything else names the prompt that must deliver the test before an agent ships.
@@ -209,10 +252,10 @@ STRIDE plus abuse cases. "Done" means a test exists in X0. Everything else names
 | Injection suite: README, response body and finding text cannot cause an out-of-scope call | **Done** (`injection.test.ts`) |
 | Budgets stop a runaway loop; kill switch stops and tears down | **Done** (`runtime.test.ts`) |
 | No agent tool can modify the ROE, state, or approvals | **Done** (`runtime.test.ts`) |
-| Non-maintainer cannot create a real-target ROE | X8 |
+| Non-maintainer cannot create a real-target ROE | X8 (the range-only white-box route already refuses anyone without push access, tested in e2e) |
 | Range has no egress; no repo text in the range; deterministic; destroyed on completion | **Done** (`isolation.test.ts`, `generate.test.ts`, `runtime.test.ts`) |
 | Unproven domain or out-of-window run sends **zero** requests (counted at the target) | X9 |
 | Evals with zero scope violations; sandbox egress, redirect and rebinding attempts | X10 |
 
 ## Not built (so no one assumes it is)
-No actual agent (X4 to X6), no route, no approval or stop screen, no stored runs or log heads, no ROE creation flow, no real network transport, no real-model evaluation. The guard, range and runtime are tested with scripted models only; nothing calls them from the app yet.
+Only one agent (white-box, no model) is wired to the app. No gray-box or red-team agent, no approval screen, no stored log heads beyond the head recorded on each verdict, no ROE creation flow for real targets, no real network transport, no real-model evaluation. The model runtime is tested with scripted models only.
