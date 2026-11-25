@@ -1,7 +1,7 @@
 # Simulation and adversary emulation: spec, threat model, rules of engagement (X0)
 
-Status: **X0 to X4 done.** `src/lib/sim/` has the rules of engagement, scope guard and audit log (X0), the range (`range/`, X1) the simulator behind the Simulate lens (`simulate/`, X2, with `src/components/twin/SimulatePanel.tsx`) the agent runtime (`agent/`, X3) and the first agent, the white-box agent (`whitebox/`, X4, with its route and Security-page UI). **The gray-box and red-team agents (X5, X6), an approval screen and a real network transport do not exist yet.**
-Everything below that says "must" is a requirement on a later prompt (X5 to X10, see `PROMPTS-SIM.md`), not a description of working behaviour.
+Status: **X0 to X5 done.** `src/lib/sim/` has the rules of engagement, scope guard and audit log (X0), the range (`range/`, X1) the simulator behind the Simulate lens (`simulate/`, X2, with `src/components/twin/SimulatePanel.tsx`) the agent runtime (`agent/`, X3) the white-box agent (`whitebox/`, X4) and the gray-box agent (`graybox/`, X5), both behind the Security page's "Verify by simulation". **The red-team agent (X6), an approval screen and the app-side wiring of real-site testing do not exist yet.**
+Everything below that says "must" is a requirement on a later prompt (X6 to X10, see `PROMPTS-SIM.md`), not a description of working behaviour.
 The decision behind it is `docs/adr/0001-simulation-boundary.md`.
 
 ## What we are building, in one paragraph
@@ -221,6 +221,60 @@ weakness for, is rejected). For an open write route: an anonymous write is accep
 
 **Not done.** Only code weaknesses reachable by a request, and open write routes, are exercised: pipeline injection needs a workflow tool the agent does not have, and the rest have no emulation. "Reaches" is the service's dependencies (the range gives every route of a service the service's dependencies), so it over-approximates. The mitigation check reads about 25 lines of one file and can miss or misread (it errs toward "not mitigated"). Patch templates: two kinds, one line, JS/TS only. The stop switch is an in-process registry, so on several server instances it only reaches runs on the instance that got the request. The run happens inside the request (60 s), not as a durable job (B1). Tested with the fixture and a fake store only; not run against a real repository on GitHub.
 
+## X5: the gray-box agent (`src/lib/sim/graybox/`, and an access model in the range)
+
+**What it is.** A deterministic agent (no model) that tests access control from the outside, the way a tester with an account would. It knows the list of routes, who each is *intended* for, and one
+set of range credentials per role (anonymous, user, admin). It does **not** read the findings or see where weaknesses are seeded. It runs through the guarded path (X3), so every request is checked, logged
+and counted, and its audit log has its own head hash.
+
+**Where these weaknesses come from.** The built-in scanner cannot detect IDOR, missing function-level authorisation, mass assignment, rate-limit gaps, session problems or business-logic abuse, and the range is
+seeded only from findings. So they arrive the same way other tools' results already do: **imported reports** (Semgrep, ZAP, Nuclei, a tester's SARIF), mapped by their CWE tag:
+
+| Weakness | CWE tags | Where it attaches |
+|---|---|---|
+| IDOR | 639, 566 | routes that address one object (`/orders/[id]`) |
+| missing function-level authorisation | 862, 285, 863, 425 | admin routes |
+| mass assignment / privilege escalation | 915, 269 | write routes |
+| no limit on attempts | 307, 770, 799 | sign-in style routes |
+| weak sessions | 384, 613 | routes that need a sign-in |
+| skipped step / replayed request | 841, 840 / 294 | write routes |
+
+A built-in rule id always wins over a CWE tag. A report about a file with no suitable route is kept as latent and reported "not reachable on the map".
+
+**The range now has an access model, enforced by default** (so a weakness is a seeded *deviation* from correct behaviour, not the only behaviour): a user may read their own objects and not someone else's (synthetic owners: odd ids are user A's);
+an admin route refuses a plain user (403) and anonymous (401); a sign-in route allows ten attempts a minute per caller, then 429; an expired or planted session is refused (401); a skipped step or a replay is refused (409); a privileged field in a write is
+ignored. Which routes are admin routes (a path segment `admin`), which address an object, and which are sign-in routes comes from the path and method: **assumptions, labelled as such** (`authSource: "assumed"`). Mass assignment is stateful: when it is
+accepted, that caller's role is raised for the rest of the range's life, and the next admin-route response says it was allowed "via escalated".
+
+**The tests**, per route, in two passes: function-level (the route works for the role it is meant for, and every lower role is refused), object-level (own object works, another user's is refused), sessions (expired and planted both refused), workflow
+(skipped step and replay refused), a burst of 12 attempts against a sign-in route (must be limited), and then mass assignment followed by an escalation check (did it make the caller an admin?). Each observation records what was expected, what happened, the status,
+the harmless proof marker, the ATT&CK technique and the audit steps. A violation is tied to the finding that reported it **by the marker the range returned**, and that finding gets a verdict (`by: "graybox"`, confirmed at medium confidence at most: the code was not read).
+Where both agents speak about one finding (an open write route is tested by both), the white-box verdict stands.
+
+**What it can and cannot say.** The range's behaviour comes from reports, so this reproduces what a report claimed, from the outside, with evidence; it does not discover new weaknesses in code. It reports an unexpected behaviour only where the range actually misbehaves,
+and a clean system produces none (tested). It tells you when a route was not tested (the route limit) and never calls that safe.
+
+**Against a real site (non-intrusive subset).** `probeDomain` exists as a library function, **not yet reachable from the app**. It needs a verified domain, ownership re-proved at the start of that run by the runtime (never before, never supplied by an agent), and a named approval, both
+required by the rules of engagement and re-checked on every request. It sends only `GET`, through the S4 client (public addresses only, the validated address is the one connected to, no redirects off the host, size cap, a pause between requests), with no credentials,
+no body and no query. For each plain, parameter-free GET route the map says is meant for admins it asks whether an anonymous visitor gets a real page, after first asking for a page that cannot exist: a site that answers both alike (a single-page app) proves nothing and is
+reported as inconclusive. A 200 is reported as "answered without signing in; confirm it is meant to be private", never as a proven flaw. The finding uses the existing `Finding` type with the new optional `technique` and `proof` fields. Counted-requests tests (like the S4 e2e): **zero
+requests unless ownership is proved**, only GET over https with a size cap, exactly the routes expected, a pause between requests, nothing with a credential or a query.
+
+**Credentials are never kept, because there are none.** The range's credentials are role names, with no secret behind them (tested: nothing credential-shaped in the observations, the log or the stored verdicts). The real-site subset takes no credentials at all. Testing a real site with real
+credentials (object-level access, sessions, mass assignment) needs a design for handling secrets that is not done (B33).
+
+**In the app.** "Verify by simulation" now runs both agents. The gray-box agent runs second; if it fails, the white-box results are still kept and the failure is said. The finding detail says which agent concluded, in plain words.
+
+**Found by running it, all fixed and tested:**
+- *A false alarm on a clean system.* `POST /api/admin/reset` was classed as a sign-in route because the pattern contained "reset", so the agent burst anonymous requests at it, got 401 each time, and reported a missing rate limit. "reset" alone is no longer a sign-in route, an admin route never is, and the agent abandons a burst whose first answer shows the route is not open to anonymous callers.
+- *Noise on open routes.* "Accepted an expired session" on a route that accepts everyone only repeats that it is open, so the session test is skipped for routes that already answer an anonymous caller (8 observations became 4 on the fixture).
+- *A pre-existing bug:* the code-excerpt route refused any path containing `[` or `]`, so Next.js dynamic-route files (`app/api/orders/[id]/route.ts`) never showed their code. Fixed for it and for the new excerpt reader (brackets and parentheses allowed; `..` and a leading `/` still refused).
+- The white-box agent now tests an admin route as an admin (it used the user role, which the new access model correctly refuses).
+- Making the access model real changed what existing tests saw: order id 42 as a plain user is now (correctly) forbidden, so that test now uses 41 and also asserts the 403. The e2e fixture gained two routes (`orders/[id]`, `admin/reset`), so four pinned counts moved.
+
+**Not done.** The real-site probe is not callable from the app: it needs an approval screen and a stored domain flow (X8, B32). The scanner still cannot detect these weaknesses itself (B34); without an imported report the range has none, and the agent finds none. Who is an admin, who owns what
+and which routes are sign-ins is a path-based assumption, not your real policy (B35). Object ownership is synthetic (odd ids). "Reaches" does not apply here. Tested on the fixture and purpose-built graphs, not on a real repository on GitHub (B31).
+
 ## Threat model of this feature
 
 STRIDE plus abuse cases. "Done" means a test exists in X0. Everything else names the prompt that must deliver the test before an agent ships.
@@ -258,4 +312,4 @@ STRIDE plus abuse cases. "Done" means a test exists in X0. Everything else names
 | Evals with zero scope violations; sandbox egress, redirect and rebinding attempts | X10 |
 
 ## Not built (so no one assumes it is)
-Only one agent (white-box, no model) is wired to the app. No gray-box or red-team agent, no approval screen, no stored log heads beyond the head recorded on each verdict, no ROE creation flow for real targets, no real network transport, no real-model evaluation. The model runtime is tested with scripted models only.
+Two agents (white-box and gray-box, no model) are wired to the app; real-site probing exists only as a library function. No red-team agent, no approval screen, no stored log heads beyond the head recorded on each verdict, no ROE creation flow for real targets, no real network transport, no real-model evaluation. The model runtime is tested with scripted models only.

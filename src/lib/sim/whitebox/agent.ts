@@ -79,7 +79,7 @@ export async function verifyFindings(input: VerifyInput): Promise<VerifyResult> 
   const notes: string[] = [];
   const sims: Record<string, Simulation> = {};
   const patches: Record<string, Patch> = {};
-  const stub = { runId: "", head: "", verifiedAt: 0 };
+  const stub = { by: "whitebox" as const, runId: "", head: "", verifiedAt: 0 };
 
   const roe = whiteboxRoe({ repo: input.repo, rangeId: spec.id, now: now(), findings: candidates.length });
   const tools = [inspectTool({ spec, weaknesses: true }), requestTool({ range: holder, spec, roles: ROLES_FOR.whitebox })] as unknown as AnyTool[];
@@ -100,7 +100,8 @@ export async function verifyFindings(input: VerifyInput): Promise<VerifyResult> 
         continue;
       }
 
-      const role: Role = w.kind === "no-auth" ? "anonymous" : route.auth === "required" ? "user" : "anonymous";
+      // the lowest role the route is meant for: the test is about the weakness, not about whether the caller was allowed in
+      const role: Role = w.kind === "no-auth" || route.auth === "none" ? "anonymous" : route.minRole === "admin" ? "admin" : route.auth === "required" ? "user" : "anonymous";
       const method = route.method === "PAGE" || route.method === "ALL" ? "GET" : route.method;
       const path = `/${route.segments.map((s) => (isParam(s) ? "1" : s)).join("/")}`;
       const entry = `${method} ${path}`;

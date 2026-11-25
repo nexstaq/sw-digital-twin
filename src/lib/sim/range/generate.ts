@@ -4,7 +4,7 @@ import type { Finding, FindingSet } from "@/lib/security/types";
 import { sha256Hex } from "./sha256";
 import {
   METHODS, WRITE_METHODS,
-  type DatastoreSpec, type EmulatorSpec, type EndpointSpec, type Method, type PayloadClass, type RangeSpec, type Weakness, type WeaknessKind,
+  type AbuseClass, type DatastoreSpec, type EmulatorSpec, type EndpointSpec, type Method, type PayloadClass, type RangeSpec, type Role, type Weakness, type WeaknessKind,
 } from "./types";
 
 /**
@@ -17,6 +17,9 @@ import {
 const EMULATED = new Set(["endpoint", "service", "datastore", "queue", "external", "env", "job"]);
 const ROUTE = new RegExp(`^(${METHODS.join("|")})\\s+(/\\S*)$`);
 const BASE_LATENCY: Record<string, number> = { endpoint: 15, service: 35, datastore: 8, queue: 5, external: 120, env: 1, job: 1 };
+// a sign-in style route. "reset" alone is deliberately not here: /admin/reset is not a sign-in, and reset-password is caught by "password".
+const LOGIN = /(?:^|\/)(?:log-?in|sign-?in|auth|token|password|passwd|forgot|otp|2fa|mfa|verify)(?:\/|$|[-_])/i;
+const isParam = (seg: string) => seg.startsWith(":") || (seg.startsWith("[") && seg.endsWith("]")) || (seg.startsWith("{") && seg.endsWith("}"));
 const TABLE_NAMES = ["accounts", "orders", "sessions", "invoices", "events", "messages", "products", "audit"];
 
 /** keys sorted, so the hash never depends on insertion order */
@@ -29,8 +32,25 @@ const sha = sha256Hex;
 const intFrom = (s: string, mod: number) => parseInt(sha(s).slice(0, 8), 16) % mod;
 const safe = (s: string) => s.replace(/[^A-Za-z0-9]/g, "").slice(0, 40);
 
+const ACCESS = new Set<string>(["idor", "missing-authz", "mass-assignment", "no-rate-limit", "weak-session", "skip-step", "replay"]);
+const SESSION_ABUSES: AbuseClass[] = ["stale-session", "fixed-session"];
+
+/**
+ * CWE ids that imported reports (Semgrep, ZAP, Nuclei, a pen tester's SARIF...) use for access-control weaknesses. The built-in scanner does not find
+ * these, so this is how they reach the range: nothing is modelled unless a report said so.
+ */
+const BY_CWE: Record<string, { kind: WeaknessKind; abuses?: AbuseClass[] }> = {
+  "CWE-639": { kind: "idor" }, "CWE-566": { kind: "idor" },
+  "CWE-862": { kind: "missing-authz" }, "CWE-285": { kind: "missing-authz" }, "CWE-863": { kind: "missing-authz" }, "CWE-425": { kind: "missing-authz" },
+  "CWE-915": { kind: "mass-assignment", abuses: ["privileged-field"] }, "CWE-269": { kind: "mass-assignment", abuses: ["privileged-field"] },
+  "CWE-307": { kind: "no-rate-limit" }, "CWE-770": { kind: "no-rate-limit" }, "CWE-799": { kind: "no-rate-limit" },
+  "CWE-384": { kind: "weak-session", abuses: SESSION_ABUSES }, "CWE-613": { kind: "weak-session", abuses: SESSION_ABUSES },
+  "CWE-841": { kind: "skip-step", abuses: ["skip-step"] }, "CWE-840": { kind: "skip-step", abuses: ["skip-step"] },
+  "CWE-294": { kind: "replay", abuses: ["replay"] },
+};
+
 /** finding -> how the range models it, or null when it has no emulation yet (and is counted in the notes) */
-export function classify(f: Pick<Finding, "ruleId" | "category">): { kind: WeaknessKind; payload?: PayloadClass } | null {
+export function classify(f: Pick<Finding, "ruleId" | "category"> & { cwe?: readonly string[] }): { kind: WeaknessKind; payload?: PayloadClass; abuses?: AbuseClass[] } | null {
   switch (f.ruleId) {
     case "CODE/sql-injection": return { kind: "sql-injection", payload: "sqli" };
     case "CODE/command-injection": return { kind: "command-injection", payload: "cmdi" };
@@ -42,6 +62,7 @@ export function classify(f: Pick<Finding, "ruleId" | "category">): { kind: Weakn
     case "CODE/no-auth-seen": return { kind: "no-auth" };
     case "GHA/pwn-request": case "GHA/script-injection": return { kind: "pipeline-injection" };
   }
+  for (const c of f.cwe ?? []) if (BY_CWE[c]) return BY_CWE[c];
   if (f.category === "secret") return { kind: "exposed-credential" };
   if (f.category === "dependency") return { kind: "vulnerable-dependency" };
   if (f.category === "pipeline") return { kind: "pipeline-misconfig" };
@@ -88,7 +109,14 @@ export function buildRange(snap: { sha: string; graph: TwinGraph }, set: Finding
   const endpoints: EndpointSpec[] = emulated.filter(isRoute).map((n) => {
     const m = ROUTE.exec(n.label)!;
     const method = m[1] as Method, path = m[2];
-    return { nodeId: n.id, ownerId: ownerOf(n), method, path, segments: path.split("/").filter(Boolean), auth: WRITE_METHODS.has(method) ? "required" : "public-read", authSource: "assumed" } satisfies EndpointSpec;
+    const segments = path.split("/").filter(Boolean);
+    // Assumptions, labelled as such: anything under an `admin` path is for admins and needs a sign-in; other writes need a sign-in; reads are open.
+    const admin = segments.some((x) => x.toLowerCase() === "admin");
+    const login = !admin && LOGIN.test(path);
+    // a sign-in route has to be open to someone who is not signed in yet; everything else that writes, or sits under /admin, needs a sign-in
+    const auth: EndpointSpec["auth"] = !admin && login ? "public-read" : admin || WRITE_METHODS.has(method) ? "required" : "public-read";
+    const minRole: Role = admin ? "admin" : auth === "required" ? "user" : "anonymous";
+    return { nodeId: n.id, ownerId: ownerOf(n), method, path, segments, auth, authSource: "assumed", minRole, object: segments.some(isParam), login } satisfies EndpointSpec;
   }).sort((a, b) => a.nodeId.localeCompare(b.nodeId));
   const endpointsInFile = new Map<string, EndpointSpec[]>();
   for (const e of endpoints) for (const ev of byId.get(e.nodeId)!.evidence) (endpointsInFile.get(ev.path) ?? endpointsInFile.set(ev.path, []).get(ev.path)!).push(e);
@@ -100,6 +128,7 @@ export function buildRange(snap: { sha: string; graph: TwinGraph }, set: Finding
   for (const f of findings) {
     const c = classify(f);
     if (!c) { unmodelled++; continue; }
+    const writes = (xs: EndpointSpec[]) => xs.filter((e) => WRITE_METHODS.has(e.method));
     const owner = nodeFor(graph, f);
     if (!owner) { unplaced++; continue; }
     const inFile = endpointsInFile.get(f.path) ?? [];
@@ -110,9 +139,18 @@ export function buildRange(snap: { sha: string; graph: TwinGraph }, set: Finding
       for (const e of inFile) if (WRITE_METHODS.has(e.method)) { e.auth = "none"; e.authSource = "finding"; endpointIds.push(e.nodeId); }
       reachable = endpointIds.length > 0;
     } else if (c.kind === "pipeline-injection") reachable = owner.startsWith("job:") || owner.startsWith("wf:");
+    else if (ACCESS.has(c.kind)) {
+      // an access-control weakness applies only to routes where the behaviour exists at all (ownership needs an object, a rate limit needs a login-like route...)
+      const where: Record<string, EndpointSpec[]> = {
+        idor: inFile.filter((e) => e.object), "missing-authz": inFile.filter((e) => e.minRole === "admin" && e.auth !== "none"), "mass-assignment": writes(inFile),
+        "no-rate-limit": inFile.filter((e) => e.login), "weak-session": inFile.filter((e) => e.auth === "required"), "skip-step": writes(inFile), replay: writes(inFile),
+      };
+      endpointIds = (where[c.kind] ?? []).map((e) => e.nodeId);
+      reachable = endpointIds.length > 0;
+    }
     weaknesses.push({
       id: `w_${safe(f.id)}`, kind: c.kind, findingId: f.id, ruleId: f.ruleId, severity: f.severity, nodeId: owner,
-      endpointIds: endpointIds.sort(), ...(c.payload ? { payload: c.payload } : {}), proof: `SIM-PROOF-${safe(f.id)}`, reachable,
+      endpointIds: endpointIds.sort(), ...(c.payload ? { payload: c.payload } : {}), ...(c.abuses ? { abuses: c.abuses } : {}), proof: `SIM-PROOF-${safe(f.id)}`, reachable,
     });
   }
   if (unmodelled) notes.push(`${unmodelled} findings have no emulation yet and are not in the range.`);

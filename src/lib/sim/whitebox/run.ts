@@ -2,6 +2,8 @@ import { persist } from "@/lib/persist";
 import type { Persist } from "@/lib/persist/types";
 import { fetchExcerpt } from "@/lib/security/excerpt";
 import type { Finding, FindingSet } from "@/lib/security/types";
+import type { Simulation } from "@/lib/security/types";
+import { discoverAccess } from "../graybox/agent";
 import { applySimulations, verifyFindings } from "./agent";
 import { proposePatch, validateDiff, type Excerpt } from "./source";
 
@@ -13,7 +15,7 @@ import { proposePatch, validateDiff, type Excerpt } from "./source";
 
 export type SimulateOutcome = { ok: true; set: FindingSet } | { ok: false; status: 409 | 500; error: string };
 
-export interface SimDeps { store?: Pick<Persist, "getFindings" | "putFindings" | "listSnapshots" | "getSnapshot">; excerpt?: typeof fetchExcerpt; now?: () => number }
+export interface SimDeps { store?: Pick<Persist, "getFindings" | "putFindings" | "listSnapshots" | "getSnapshot">; excerpt?: typeof fetchExcerpt; now?: () => number; /** test seam: the gray-box agent */ graybox?: typeof discoverAccess }
 
 export async function simulateAndStore(repo: string, token: string | undefined, o: { source: boolean; signal?: AbortSignal; deps?: SimDeps }): Promise<SimulateOutcome> {
   const store = o.deps?.store ?? persist();
@@ -27,8 +29,21 @@ export async function simulateAndStore(repo: string, token: string | undefined, 
 
   const excerpt = o.source ? (f: Finding) => read(repo, set.sha, f.path, f.line, token, { signal: o.signal }) : undefined;
   const r = await verifyFindings({ repo, sha: set.sha, graph: snap.graph, set, excerpt, now });
-  const notes = snap.sha !== set.sha ? ["The map and the security scan are from different commits, so some paths may not line up.", ...r.notes] : r.notes;
-  const merged = applySimulations(set, { ...r, notes }, { sourceRead: o.source, at: now() });
+
+  // The gray-box agent tests access control from the outside. If it fails, the white-box results are still kept, and the failure is said.
+  let gray: Awaited<ReturnType<typeof discoverAccess>> | null = null;
+  try { gray = await (o.deps?.graybox ?? discoverAccess)({ repo, sha: set.sha, graph: snap.graph, set, now }); } catch { /* reported in the notes below */ }
+
+  // Where both agents speak about the same finding, the white-box verdict stands: it can read the code.
+  const simulations: Record<string, Simulation> = { ...(gray?.simulations ?? {}), ...r.simulations };
+  const counts: Record<string, number> = {};
+  for (const s of Object.values(simulations)) counts[s.verdict] = (counts[s.verdict] ?? 0) + 1;
+  const notes = [
+    ...(snap.sha !== set.sha ? ["The map and the security scan are from different commits, so some paths may not line up."] : []),
+    ...r.notes, ...(gray ? gray.notes.filter((n) => !/findings were not exercised/.test(n)) : ["The access-control tests could not run."]),
+  ];
+  const merged = applySimulations(set, { simulations, run: r.run, runId: r.runId, counts, notes }, { sourceRead: o.source, at: now() });
+  if (gray) merged.simulated = { ...merged.simulated!, graybox: { runId: gray.runId, head: gray.run.head } };
   await store.putFindings(repo, merged);
   return { ok: true, set: merged };
 }

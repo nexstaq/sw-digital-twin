@@ -15,6 +15,14 @@ export type PayloadClass = (typeof PAYLOAD_CLASSES)[number];
 
 export const ROLES = ["anonymous", "user", "admin"] as const;
 export type Role = (typeof ROLES)[number];
+export const roleRank = (r: Role) => ROLES.indexOf(r);
+
+/**
+ * Hostile BEHAVIOUR (as opposed to hostile input) that an agent can try on a route: a privileged field in a write, an expired or planted session,
+ * a skipped step, a replayed request. Like payload classes they are names, never text, and a success is a harmless marker.
+ */
+export const ABUSE_CLASSES = ["privileged-field", "stale-session", "fixed-session", "skip-step", "replay"] as const;
+export type AbuseClass = (typeof ABUSE_CLASSES)[number];
 
 export const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "PAGE", "ALL"] as const;
 export type Method = (typeof METHODS)[number];
@@ -23,6 +31,7 @@ export const WRITE_METHODS: ReadonlySet<string> = new Set(["POST", "PUT", "PATCH
 export type WeaknessKind =
   | "sql-injection" | "command-injection" | "code-injection" | "path-traversal" | "ssrf" | "xss" | "open-redirect"
   | "no-auth"
+  | "idor" | "missing-authz" | "mass-assignment" | "no-rate-limit" | "weak-session" | "skip-step" | "replay"
   | "exposed-credential" | "vulnerable-dependency" | "container-misconfig"
   | "pipeline-injection" | "pipeline-misconfig";
 
@@ -43,6 +52,8 @@ export interface Weakness {
   /** endpoints that can exercise it (web weaknesses) */
   endpointIds: string[];
   payload?: PayloadClass;
+  /** access-control weaknesses: the behaviours (abuse classes) that exercise it. IDOR, missing authorization and rate limits need none: a plain request does. */
+  abuses?: AbuseClass[];
   /** the harmless marker a successful exercise returns */
   proof: string;
   reachable: boolean;
@@ -69,6 +80,12 @@ export interface EndpointSpec {
   segments: string[];
   /** "none": accepts anonymous calls on a write route. "required": needs a signed-in role. "public-read": read-only, open */
   auth: "none" | "required" | "public-read";
+  /** the lowest role the route is meant for: admin for anything under an `admin` path, user where sign-in is needed, else anyone. An assumption unless a finding says otherwise. */
+  minRole: Role;
+  /** the route addresses one object by id (`/orders/[id]`), so who OWNS that object matters */
+  object: boolean;
+  /** looks like a sign-in, password or one-time-code route, where repeated attempts must be limited */
+  login: boolean;
   /** "finding" when the scanner said so; "assumed" when this is only the range's default */
   authSource: "finding" | "assumed";
 }
@@ -105,6 +122,7 @@ export interface RangeRequest {
   path: string;
   role: Role;
   payload?: { class: PayloadClass };
+  abuse?: { class: AbuseClass };
 }
 
 export interface RangeResponse {
@@ -117,6 +135,10 @@ export interface RangeResponse {
   reached?: string[];
   /** crown markers of datastores reached by an exercised weakness */
   crown?: string[];
+  /** a privileged field in the request was accepted */
+  applied?: true;
+  /** the call was allowed only because an earlier request raised this caller's role */
+  via?: "escalated";
 }
 
 export type EventKind = "request" | "visit" | "job" | "deploy";

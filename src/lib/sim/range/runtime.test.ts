@@ -22,7 +22,8 @@ describe("requests", () => {
   });
   it("a route with a parameter matches any value, and a plain route wins over a parameter route", () => {
     const r = start();
-    expect(r.handle(req({ method: "GET", path: "/api/orders/42" })).status).toBe(200);
+    expect(r.handle(req({ method: "GET", path: "/api/orders/41" })).status).toBe(200);   // an object this user owns
+    expect(r.handle(req({ method: "GET", path: "/api/orders/42" })).status).toBe(403);   // someone else's: owners are enforced by default
     expect(r.handle(req({ method: "GET", path: "/api/orders/42/extra" })).status).toBe(404);
   });
   it("the method must match", () => { expect(start().handle(req({ method: "DELETE", path: "/api/orders" })).status).toBe(404); });

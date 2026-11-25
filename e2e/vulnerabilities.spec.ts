@@ -107,7 +107,7 @@ test.describe("security analysis", () => {
   test("the authentication note is low-confidence and says it can be wrong", async ({ page }) => {
     await scanVault(page);
     await posture(page).getByRole("button", { name: /^Code/ }).click();
-    await posture(page).getByRole("button", { name: /Endpoint accepts writes and shows no authentication check/ }).click();
+    await posture(page).getByRole("button", { name: /Endpoint accepts writes and shows no authentication check/ }).filter({ hasText: "app/api/orders/" }).click(); // there are two such routes now (orders and admin/reset)
     const d = panel(page);
     await expect(d.getByText("Low", { exact: true }).first()).toBeVisible();
     await expect(d.getByText("low confidence")).toBeVisible();
@@ -121,8 +121,8 @@ test.describe("security analysis", () => {
     await expect(paths).toBeVisible();
     const card = paths.getByRole("listitem").filter({ hasText: "Data & messaging" }).first();
     await expect(card).toContainText("acme-shop");
-    // the fixture has three public routes (orders, files, invoices); only orders accepts writes, and it has no authentication check
-    await expect(card).toContainText("3 public endpoints in acme-shop, 1 of which accepts writes with no authentication check");
+    // the fixture has five public routes; two of them (orders and admin/reset) accept writes with no authentication check
+    await expect(card).toContainText("5 public endpoints in acme-shop, 2 of which accept writes with no authentication check");
     await expect(card).toContainText("Reaches Data & messaging (reads)");
     await expect(card).toContainText("via web");
     // hosting is not an attack route: no path ends at the environment the service is deployed to

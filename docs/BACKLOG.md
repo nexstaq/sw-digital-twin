@@ -25,7 +25,7 @@ Other docs describe how things work today; they should not carry their own to-do
 | B11 | Real emulated servers in Vercel Sandbox | Only if a later prompt needs them. The virtual range does not, and has no network by construction |
 | B12 | Run the range on a real scanned repository and record what it got wrong | X1 was tested on fixtures and the demo graph only |
 | B13 | Persist ranges and run events; an API route to start one | Needs the rules-of-engagement flow (X3, X8) first |
-| B14 | Weaknesses the scanner cannot find (IDOR, business logic) | The range is seeded only from findings; X5 needs another source, such as an imported report |
+| B14 | Weaknesses the scanner cannot find (IDOR, business logic) | Partly done in X5: imported reports, mapped by CWE, seed them. The built-in scanner still finds none (B34) |
 | B15 | Tie a finding to one handler, not every route in its file | The map does not carry line-to-handler mapping for routes |
 
 | B16 | Optional model rewording of simulation captions | The X2 prompt allowed it; not built. Needs the same untrusted-text rules as explain.ts |
@@ -46,6 +46,11 @@ Other docs describe how things work today; they should not carry their own to-do
 | B29 | Share the source-excerpt reader between the snippet route and the simulation | `src/lib/security/excerpt.ts` repeats part of the snippet route |
 | B30 | Run the simulation as a durable job, not inside the request | It runs in the request (60 s). Same reason as B1 |
 | B31 | Check a real repository on GitHub, not only the fixture | X4 was tested on the fixture and a fake store |
+
+| B32 | Run the real-site probe from the app | `probeDomain` is a library function. It needs the approval screen and a stored-domain flow (X8) |
+| B33 | Real-site tests with credentials (object-level access, sessions, mass assignment) | Needs a design for handling real secrets that are never stored or logged. Today the agent takes none |
+| B34 | Detect IDOR, missing authorisation and mass assignment in code, in the built-in scanner | Without an imported report the range has none of these and the gray-box agent finds none |
+| B35 | Use the application's real access policy instead of path conventions (admin under `/admin`, writes need a sign-in, ids addressing objects) | The model is an assumption, labelled as one |
 
 ## Quality and verification
 

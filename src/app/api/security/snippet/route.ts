@@ -24,7 +24,7 @@ export async function GET(req: Request) {
   }
   const path = url.searchParams.get("path") ?? "";
   const line = Number(url.searchParams.get("line"));
-  if (!/^[\w@.+\-/ ]{1,300}$/.test(path) || path.split("/").some((s) => s === ".." || s === ".") || path.startsWith("/") || !Number.isInteger(line) || line < 1 || line > 1_000_000) {
+  if (!/^[\w@.+\-/ \[\]()]{1,300}$/.test(path) || path.split("/").some((s) => s === ".." || s === ".") || path.startsWith("/") || !Number.isInteger(line) || line < 1 || line > 1_000_000) {
     return Response.json({ error: "Bad request." }, { status: 400 });
   }
   const a = await authorizeRepo(req, repo, { need: "push" });

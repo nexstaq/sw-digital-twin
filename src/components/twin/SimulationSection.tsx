@@ -15,7 +15,7 @@ export function SimulationSection({ set, simulating, error, onSimulate, onStop }
   return (
     <section aria-label="Verify by simulation" className="space-y-2 rounded-lg border border-line bg-raised/60 p-2.5">
       <h3 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-ink-faint"><FlaskConical size={12} aria-hidden /> Verify by simulation</h3>
-      <p className="leading-snug text-ink-dim">Tries each code finding against a simulated copy of your system: can an outside request reach it, and what does it reach then? Nothing real is touched.</p>
+      <p className="leading-snug text-ink-dim">Tries each code finding against a simulated copy of your system: can an outside request reach it, and what does it reach then? It also tests access control from the outside (roles, who owns what, sessions, attempt limits, steps) for weaknesses that imported reports describe. Nothing real is touched.</p>
       <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-snug text-ink-dim">
         <input type="checkbox" checked={source} onChange={(e) => setSource(e.target.checked)} disabled={simulating} className="mt-0.5 accent-[var(--color-accent)]" />
         <span><span className="text-ink">Let it read the few lines around each finding.</span> It looks for protection already in the code and proposes patches as diffs to read. Read with your own GitHub access; not stored, not sent to an AI.</span>

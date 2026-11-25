@@ -26,7 +26,7 @@ describe("the same snapshot always gives the same range", () => {
     const s = shopFindings(); s.findings.push(finding("f9", "CODE/xss-react", "code", "api/src/orders.ts"));
     expect(build({ set: s }).specHash).not.toBe(base);
   });
-  it("golden: the hash of the sample range, so an accidental change to the generator is noticed", () => { expect(build().specHash).toBe("5ffe9c00379e9588"); });
+  it("golden: the hash of the sample range, so an accidental change to the generator is noticed", () => { expect(build().specHash).toBe("62e6f76d0f1ff46a"); });
   it("the id can be named as a `range` target in the rules of engagement", () => {
     const spec = build();
     expect(spec.id).toMatch(/^range_[0-9a-f]{16}$/);

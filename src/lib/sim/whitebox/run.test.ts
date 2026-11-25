@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FindingSet } from "@/lib/security/types";
 import { diskExcerpt } from "./helpers";
+import { accessGraph, reported, shopFindings } from "../range/fixtures";
 import { patchFor, simulateAndStore, type SimDeps } from "./run";
 import { fixtureWorld, SHA } from "./world";
 
@@ -50,7 +51,7 @@ describe("verify by simulation, for one repository", () => {
     await simulateAndStore("acme/shop", "tok", { source: true, deps: on.deps });
     expect(on.stored()!.simulated!.sourceRead).toBe(true);
     const paths = new Set(on.read.mock.calls.map((c) => c[2]));
-    expect(paths).toEqual(new Set(["app/api/orders/route.ts", "app/api/files/route.ts", "app/api/invoices/route.ts"]));
+    expect(paths).toEqual(new Set(["app/api/orders/route.ts", "app/api/files/route.ts", "app/api/invoices/route.ts", "app/api/admin/reset/route.ts"]));
     expect(on.read.mock.calls.every((c) => c[1] === SHA && c[4] === "tok")).toBe(true);
   });
 
@@ -103,5 +104,57 @@ describe("the patch, made again on request", () => {
     const r = await withRun();
     const changed: SimDeps = { ...r.deps, excerpt: (async (_a: string, _b: string, path: string, line: number) => ({ path, startLine: line, lines: ["  return readFile(somethingElse);"] })) as never };
     expect(await patchFor("acme/shop", id(r, "CODE/path-traversal", "app/api/files/route.ts"), "t", { deps: changed })).toMatchObject({ ok: false, status: 404, error: expect.stringMatching(/could not be made again/) });
+  });
+});
+
+describe("the white-box and gray-box agents together", () => {
+  const ACCESS = [reported("f_idor", "CWE-639", "api/src/order.ts"), reported("f_authz", "CWE-862", "api/src/admin-stats.ts"), reported("f_rate", "CWE-307", "api/src/login.ts")];
+  async function both(over: Partial<SimDeps> = {}) {
+    const s = shopFindings();
+    const set: FindingSet = { ...s, findings: [...s.findings, ...ACCESS] };
+    let stored: FindingSet | null = set;
+    const deps: SimDeps = {
+      store: { getFindings: async () => stored, putFindings: async (_r, x) => { stored = x; }, listSnapshots: async () => [{ sha: s.sha, createdAt: 1 }], getSnapshot: async () => ({ sha: s.sha, createdAt: 1, graph: accessGraph() }) },
+      excerpt: (async () => null) as never, now: () => NOW, ...over,
+    };
+    const out = await simulateAndStore("acme/shop", "t", { source: false, deps });
+    return { out, stored: () => stored!, set };
+  }
+
+  it("one action gives verdicts from both: injection and open-route findings from the white-box agent, access-control ones from the gray-box agent", async () => {
+    const x = await both();
+    const by = (id: string) => x.stored().findings.find((f) => f.id === id)!.simulation;
+    expect(by("f1")).toMatchObject({ by: "whitebox", verdict: "confirmed" });          // the SQL injection
+    expect(by("f_idor")).toMatchObject({ by: "graybox", verdict: "confirmed" });
+    expect(by("f_authz")).toMatchObject({ by: "graybox", verdict: "confirmed" });
+    expect(by("f_rate")).toMatchObject({ by: "graybox", verdict: "confirmed" });       // the reported file holds the login route, so the burst test applies
+  });
+  it("each agent's run keeps its own audit log head, so each log can be checked", async () => {
+    const x = await both();
+    const sim = x.stored().simulated!;
+    expect(sim.head).toMatch(/^[0-9a-f]{64}$/);
+    expect(sim.graybox!.head).toMatch(/^[0-9a-f]{64}$/);
+    expect(sim.graybox!.head).not.toBe(sim.head);
+    expect(sim.graybox!.runId).toMatch(/^gb_/);
+    expect(sim.runId).toMatch(/^wb_/);
+  });
+  it("where both speak about one finding, the white-box verdict stands", async () => {
+    const x = await both();
+    const noAuth = x.stored().findings.find((f) => f.id === "f2")!.simulation!; // the open write route: both agents test it
+    expect(noAuth.by).toBe("whitebox");
+  });
+  it("if the gray-box agent fails, the white-box results are still stored, and the failure is said", async () => {
+    const x = await both({ graybox: (async () => { throw new Error("boom"); }) as never });
+    expect(x.out.ok).toBe(true);
+    expect(x.stored().findings.find((f) => f.id === "f1")!.simulation).toMatchObject({ by: "whitebox", verdict: "confirmed" });
+    expect(x.stored().findings.find((f) => f.id === "f_idor")!.simulation).toBeUndefined();
+    expect(x.stored().simulated!.notes.join(" ")).toMatch(/access-control tests could not run/);
+    expect(x.stored().simulated!.graybox).toBeUndefined();
+  });
+  it("the counts add up across both agents", async () => {
+    const x = await both();
+    const verdicts = x.stored().findings.map((f) => f.simulation?.verdict).filter(Boolean);
+    const total = Object.values(x.stored().simulated!.counts).reduce((a, b) => a + b, 0);
+    expect(total).toBe(verdicts.length);
   });
 });

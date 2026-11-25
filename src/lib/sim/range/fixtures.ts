@@ -63,3 +63,23 @@ export const shopFindings = (): FindingSet => ({
     finding("f8", "NUCLEI/exposed-panel", "runtime", "https://shop.example.com/admin"),
   ],
 });
+
+// ---- access-control fixtures ----
+
+/** the shop, plus routes that exercise the access model: an admin read, a login, a user update and a checkout step */
+export const accessGraph = (): TwinGraph => {
+  const g = shopGraph();
+  g.nodes.push(
+    node("route:api:GET:/api/admin/stats", 2, "endpoint", "GET /api/admin/stats", "grp:api", "api/src/admin-stats.ts"),
+    node("route:api:POST:/api/auth/login", 2, "endpoint", "POST /api/auth/login", "grp:api", "api/src/login.ts"),
+    node("route:api:PATCH:/api/users/[id]", 2, "endpoint", "PATCH /api/users/[id]", "grp:api", "api/src/users.ts"),
+    node("route:api:POST:/api/checkout/pay", 2, "endpoint", "POST /api/checkout/pay", "grp:api", "api/src/checkout.ts"),
+  );
+  return g;
+};
+
+/** an imported report's finding: no built-in rule id, but a CWE tag, which is how access-control weaknesses reach the range */
+export const reported = (id: string, cwe: string, path: string, over: Partial<Finding> = {}): Finding =>
+  finding(id, `sarif:semgrep:${id}`, "code", path, { cwe: [cwe], detail: { source: "sarif:semgrep" }, ...over });
+
+export const accessFindings = (...fs: Finding[]): FindingSet => ({ ...shopFindings(), findings: fs });

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
-  METHODS, PAYLOAD_CLASSES, ROLES, WRITE_METHODS,
-  type EndpointSpec, type Fault, type FlowResult, type RangeEvent, type RangeRequest, type RangeResponse, type RangeSpec, type Weakness, type WorkflowResult,
+  ABUSE_CLASSES, METHODS, PAYLOAD_CLASSES, ROLES, WRITE_METHODS, roleRank,
+  type EndpointSpec, type Fault, type FlowResult, type RangeEvent, type RangeRequest, type RangeResponse, type RangeSpec, type Role, type Weakness, type WeaknessKind, type WorkflowResult,
 } from "./types";
 
 /**
@@ -26,7 +26,14 @@ const RequestSchema = z.strictObject({
   path: z.string().max(512).regex(/^\/[A-Za-z0-9._~\-/:[\]{}@%]*$/),
   role: z.enum(ROLES),
   payload: z.strictObject({ class: z.enum(PAYLOAD_CLASSES) }).optional(),
-});
+  abuse: z.strictObject({ class: z.enum(ABUSE_CLASSES) }).optional(),
+}).refine((r) => !(r.payload && r.abuse), { message: "a request carries a payload class or an abuse class, not both" });
+
+/** how many attempts a login-like route allows per principal per minute (virtual time) before it answers 429 */
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60_000;
+/** synthetic data only: object 1 belongs to user A, 2 to user B, and so on */
+const ownerOf = (objectId: string): "userA" | "userB" => ((/^\d+$/.test(objectId) ? Number(objectId) : [...objectId].reduce((a, c) => a + c.charCodeAt(0), 0)) % 2 === 1 ? "userA" : "userB");
 
 const isParam = (seg: string) => seg.startsWith(":") || (seg.startsWith("[") && seg.endsWith("]")) || (seg.startsWith("{") && seg.endsWith("}"));
 
@@ -68,10 +75,13 @@ export function startRange(spec: RangeSpec, opts: { maxEvents?: number } = {}): 
   const faults = new Map<string, Fault>();
   const depth = new Map<string, number>();
   const deployed = new Map<string, string>();
+  /** callers whose role an earlier request raised (a mass-assignment weakness), and the weakness that did it */
+  const escalated = new Map<string, Weakness>();
+  const attempts = new Map<string, number[]>();
   let log: RangeEvent[] = [];
 
   const alive = () => { if (dead) throw new RangeDestroyedError(dead); };
-  const destroy = (reason = "finished") => { if (dead) return; dead = reason; log = []; faults.clear(); depth.clear(); deployed.clear(); emus.clear(); adj.clear(); crowns.clear(); };
+  const destroy = (reason = "finished") => { if (dead) return; dead = reason; log = []; faults.clear(); depth.clear(); deployed.clear(); escalated.clear(); attempts.clear(); emus.clear(); adj.clear(); crowns.clear(); };
   const emit = (e: Omit<RangeEvent, "seq" | "t"> & { t?: number }) => {
     if (log.length >= maxEvents) { destroy("event limit"); throw new RangeLimitError(`more than ${maxEvents} events`); }
     log.push({ seq: seq++, t: e.t ?? t, traceId: e.traceId, kind: e.kind, nodeId: e.nodeId, ...(e.from ? { from: e.from } : {}), ...(e.via ? { via: e.via } : {}), ok: e.ok, ms: e.ms, ...(e.status !== undefined ? { status: e.status } : {}), ...(e.note ? { note: e.note } : {}) });
@@ -132,10 +142,55 @@ export function startRange(spec: RangeSpec, opts: { maxEvents?: number } = {}): 
     const ep = byPath.find((e) => matches(e, req.method, segs));
     if (!ep) return { status: 404, traceId, ms: 0, body: "not found" };
 
-    if (ep.auth === "required" && req.role === "anonymous") {
+    const answer = (status: number, body: string, note: string, extra: Partial<RangeResponse> = {}): RangeResponse => {
       t += 1;
-      emit({ traceId, kind: "request", nodeId: ep.nodeId, ok: true, ms: 1, status: 401, note: "unauthenticated" });
-      return { status: 401, traceId, ms: 1, body: "authentication required" };
+      emit({ traceId, kind: "request", nodeId: ep.nodeId, ok: true, ms: 1, status, note });
+      return { status, traceId, ms: 1, body, ...extra };
+    };
+    if (ep.auth === "required" && req.role === "anonymous") return answer(401, "authentication required", "unauthenticated");
+
+    // ---- who is calling, and what rules apply to this route ----
+    const principal = req.role === "admin" ? "admin" : req.role === "user" ? "userA" : "anon";
+    const raised = escalated.get(principal);
+    const eff: Role = raised && roleRank("admin") > roleRank(req.role) ? "admin" : req.role;
+    const ws = weaknessesOf(ep);
+    const weak = (kind: WeaknessKind) => ws.find((w) => w.kind === kind);
+    let finding: Weakness | undefined; // the weakness a normal-looking request ended up exercising, if any
+
+    // a session that should not work (expired, or planted by the attacker) is refused on routes that need a sign-in, unless the weakness is seeded
+    if (req.abuse && (req.abuse.class === "stale-session" || req.abuse.class === "fixed-session") && ep.auth === "required") {
+      const w = ws.find((x) => x.kind === "weak-session" && x.abuses?.includes(req.abuse!.class));
+      if (!w) return answer(401, "session not valid", "invalid session refused");
+      finding = w;
+    }
+
+    // function-level authorisation: a route meant for admins refuses a user, unless the weakness is seeded. A route flagged as open to everyone has no such rule.
+    if (ep.auth !== "none" && roleRank(eff) < roleRank(ep.minRole)) {
+      const w = weak("missing-authz");
+      if (!w) return answer(403, "forbidden", "not permitted for this role");
+      finding ??= w;
+    }
+
+    // object-level authorisation: a user may only read and change their own objects, unless the weakness is seeded
+    if (ep.object && eff === "user") {
+      const id = segs[ep.segments.findIndex(isParam)] ?? "";
+      if (ownerOf(id) !== "userA") {
+        const w = weak("idor");
+        if (!w) return answer(403, "forbidden", "not the owner");
+        finding ??= w;
+      }
+    }
+
+    // sign-in style routes limit repeated attempts, unless the weakness is seeded
+    if (ep.login) {
+      const key = `${ep.nodeId}|${principal}`;
+      const recent = (attempts.get(key) ?? []).filter((x) => x > t - RATE_WINDOW_MS);
+      attempts.set(key, [...recent, t]);
+      if (recent.length >= RATE_LIMIT) {
+        const w = weak("no-rate-limit");
+        if (!w) return answer(429, "too many attempts", "rate limited");
+        finding ??= w;
+      }
     }
 
     const ctx: Ctx = { traceId, visited: new Set(), reached: [] };
@@ -150,14 +205,30 @@ export function startRange(spec: RangeSpec, opts: { maxEvents?: number } = {}): 
       return { status: 503, traceId, ms, body: "service unavailable" };
     }
 
-    const ws = weaknessesOf(ep);
+    const write = WRITE_METHODS.has(ep.method);
     const hit = req.payload ? ws.find((w) => w.payload === req.payload!.class) : undefined;
-    const noAuth = !req.payload && ep.auth === "none" && ep.authSource === "finding" && req.role === "anonymous" && WRITE_METHODS.has(ep.method) ? ws.find((w) => w.kind === "no-auth") : undefined;
-    const proven = hit ?? noAuth;
+    const noAuth = !req.payload && ep.auth === "none" && ep.authSource === "finding" && req.role === "anonymous" && write ? weak("no-auth") : undefined;
+    let abuseWeak: Weakness | undefined;
+    let applied = false;
+    if (req.abuse && write) {
+      const k = req.abuse.class;
+      if (k === "privileged-field") {
+        abuseWeak = weak("mass-assignment");
+        if (abuseWeak) { applied = true; if (principal === "userA") escalated.set(principal, abuseWeak); }
+      } else if (k === "skip-step" || k === "replay") {
+        abuseWeak = ws.find((w) => w.kind === k);
+        if (!abuseWeak) { emit({ traceId, kind: "request", nodeId: ep.nodeId, ok: true, ms, status: 409, note: k === "replay" ? "replay refused" : "missing step refused" }); return { status: 409, traceId, ms, body: "conflict" }; }
+      }
+    } else if (req.abuse && !write && req.abuse.class !== "stale-session" && req.abuse.class !== "fixed-session") {
+      emit({ traceId, kind: "request", nodeId: ep.nodeId, ok: true, ms, status: 400, note: "not applicable" });
+      return { status: 400, traceId, ms, body: "not applicable" };
+    }
+    const viaEscalation = !!raised && roleRank(req.role) < roleRank(eff) && roleRank(ep.minRole) > roleRank(req.role) && ep.auth !== "none";
+    const proven = hit ?? noAuth ?? abuseWeak ?? finding ?? (viaEscalation ? raised : undefined);
     if (proven) {
       const crown = ctx.reached.map((id) => crowns.get(id)).filter((c): c is string => !!c);
       emit({ traceId, kind: "request", nodeId: ep.nodeId, ok: true, ms, status: 200, note: `weakness exercised (${proven.kind})` });
-      return { status: 200, traceId, ms, body: "ok", proof: proven.proof, reached: ctx.reached, ...(crown.length ? { crown } : {}) };
+      return { status: 200, traceId, ms, body: "ok", proof: proven.proof, reached: ctx.reached, ...(applied ? { applied: true as const } : {}), ...(viaEscalation && proven === raised ? { via: "escalated" as const } : {}), ...(crown.length ? { crown } : {}) };
     }
     if (req.payload) {
       emit({ traceId, kind: "request", nodeId: ep.nodeId, ok: true, ms, status: 400, note: "input rejected" });

@@ -153,7 +153,7 @@ describe("what it does not touch", () => {
   it("records when and how it ran, so the log can be checked later", async () => {
     const x = await verify({ excerpt: diskExcerpt });
     const merged = applySimulations(x.set, x.r, { sourceRead: true, at: NOW });
-    expect(merged.simulated).toMatchObject({ at: NOW, runId: x.r.runId, head: x.r.run.head, sourceRead: true, counts: { confirmed: 3, mitigated: 1 } });
+    expect(merged.simulated).toMatchObject({ at: NOW, runId: x.r.runId, head: x.r.run.head, sourceRead: true, counts: { confirmed: 4, mitigated: 1 } });
   });
 });
 

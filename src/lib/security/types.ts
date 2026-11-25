@@ -25,6 +25,8 @@ export type Vuln = z.infer<typeof Vuln>;
  * A verdict is evidence, not proof, and it changes how a finding is ranked, never its severity or the safety score.
  */
 export const SimulationSchema = z.object({
+  /** which agent reached it. Absent on verdicts stored before there was more than one. */
+  by: z.enum(["whitebox", "graybox"]).optional(),
   verdict: z.enum(["confirmed", "mitigated", "unreachable", "not-reproduced"]),
   confidence: z.enum(["high", "medium", "low"]),
   /** one plain-English sentence */
@@ -38,7 +40,7 @@ export const SimulationSchema = z.object({
     payloadClass: z.string().optional(),
     technique: z.string(),
     steps: z.array(z.object({
-      name: z.enum(["baseline", "exploit", "control"]),
+      name: z.string().max(40),
       request: z.object({ method: z.string(), path: z.string(), role: z.string(), payloadClass: z.string().optional() }),
       expect: z.string(),
     })),
@@ -96,6 +98,9 @@ export const FindingSchema = z.object({
   }).default({}),
   /** set by "verify by simulation"; absent means nobody has tried */
   simulation: SimulationSchema.optional(),
+  /** the ATT&CK technique an agent used to find or confirm it, and one line of evidence (never a secret, a body or source) */
+  technique: z.string().optional(),
+  proof: z.string().max(400).optional(),
 });
 export type Finding = z.infer<typeof FindingSchema>;
 
@@ -130,7 +135,11 @@ export const FindingSetSchema = z.object({
     by: z.object({ ref: z.string().optional(), workflow: z.string().optional(), runId: z.string().optional(), actor: z.string().optional() }).optional(),
   })).optional(),
   /** the last "verify by simulation" run over these findings */
-  simulated: z.object({ at: z.number(), runId: z.string(), head: z.string(), sourceRead: z.boolean(), counts: z.record(z.string(), z.number()), notes: z.array(z.string()) }).optional(),
+  simulated: z.object({
+    at: z.number(), runId: z.string(), head: z.string(), sourceRead: z.boolean(), counts: z.record(z.string(), z.number()), notes: z.array(z.string()),
+    /** the gray-box agent's own run, with its own audit log head */
+    graybox: z.object({ runId: z.string(), head: z.string() }).optional(),
+  }).optional(),
   /** what could not be checked (OSV unreachable, scan capped, …): never silently "all clear" */
   warnings: z.array(z.string()),
 });

@@ -40,7 +40,7 @@ test.describe("verify by simulation", () => {
     await scanVault(page);
     const before = await gradeLabel(page);
     const sim = await verify(page, { source: true });
-    await expect(sim).toContainText(/3 confirmed/);
+    await expect(sim).toContainText(/4 confirmed/);
     await expect(sim).toContainText(/1 look mitigated/);
     await expect(sim).toContainText("Source was read");
 
@@ -146,5 +146,62 @@ test.describe("verify by simulation", () => {
     const sarif = await (await page.request.get("/api/security/report?repo=acme/vault&format=sarif")).text();
     expect(sarif).not.toContain("--- a/");
     expect(sarif).not.toContain("UPDATE orders");
+  });
+
+  test("access control: an imported report about an IDOR is confirmed by testing from the outside, and so is the unauthenticated admin route", async ({ page }) => {
+    const problems = watchProblems(page);
+    // an ordinary report from another tool: its CWE tag (639, insecure direct object reference) is what tells the simulation what it is about
+    const report = JSON.stringify({
+      version: "2.1.0",
+      runs: [{
+        tool: { driver: { name: "Semgrep", rules: [{ id: "idor-orders", shortDescription: { text: "Insecure direct object reference" }, help: { text: "Check that the caller owns the object before returning it." }, properties: { tags: ["security", "CWE-639"], "security-severity": "7.5" } }] } },
+        results: [{ ruleId: "idor-orders", level: "error", message: { text: "The order id from the URL is used without checking who owns the order." }, locations: [{ physicalLocation: { artifactLocation: { uri: "app/api/orders/[id]/route.ts" }, region: { startLine: 5 } } }] }],
+      }],
+    });
+    const source = encodeURIComponent("sarif:semgrep");
+    await signIn(page);
+    await page.request.delete(`/api/security/import?repo=acme/vault&source=${source}`);
+    try {
+      await mapRepo(page, "acme/vault");
+      await page.goto("/security?repo=acme/vault");
+      await posture(page).getByRole("button", { name: /Run security scan|Scan again/ }).click();
+      await expect(posture(page).getByRole("button", { name: "Scan again" })).toBeEnabled({ timeout: 30_000 });
+      const imported = await page.request.post("/api/security/import?repo=acme/vault", { data: report, headers: { "content-type": "application/json" } });
+      expect(imported.status()).toBe(200);
+      await page.goto("/security?repo=acme/vault");
+      await expect(posture(page).getByRole("img", { name: /Security grade/ })).toBeVisible();
+
+      const sim = await verify(page, { source: false });
+      await expect(sim).toContainText("routes tested from the outside");
+      await expect(sim).toContainText(/4 unexpected behaviours seen/); // the IDOR; anonymous writes on orders; anonymous AND plain-user calls on admin/reset
+
+      await codeOnly(page);
+      await posture(page).getByRole("button", { name: /Insecure direct object reference/ }).click();
+      const d = panel(page).getByRole("region", { name: "Simulation" });
+      await expect(d).toContainText("Confirmed by simulation");
+      await expect(panel(page)).toContainText("SELECT * FROM orders WHERE id = $1"); // the code is shown (a Next.js dynamic-route file, [id], used to be refused as a bad path)
+      await expect(d).toContainText("let a signed-in user read another user's object");
+      await expect(d).toContainText("Found by testing from the outside with an account");
+      await d.getByText(/The test \(1 requests/).click();
+      await expect(d).toContainText("object-level");
+      await expect(d).toContainText("refused: the object belongs to another user");
+      await expect(d).toContainText(/audit steps #\d+/);
+      await expect(panel(page).getByRole("button", { name: "Show the proposed patch" })).toHaveCount(0); // only the white-box agent reads code
+      await panel(page).getByRole("button", { name: "Close finding" }).click();
+
+      // the unauthenticated admin route: a write with no sign-in, on a route meant for admins
+      await posture(page).getByRole("button", { name: /Endpoint accepts writes and shows n/ }).filter({ hasText: "app/api/admin/reset" }).click();
+      await expect(panel(page)).toContainText("app/api/admin/reset/route.ts");
+      await expect(panel(page).getByRole("region", { name: "Simulation" })).toContainText("accepts a write from someone who is not signed in");
+      await panel(page).getByRole("button", { name: "Close finding" }).click();
+
+      // evidence, not proof: the stored verdicts keep no source, and the safety grade is what it was
+      const stored = await (await page.request.get("/api/security/findings?repo=acme/vault")).text();
+      expect(stored).toContain('"by":"graybox"');
+      for (const code of ["DELETE FROM orders", "SELECT * FROM orders", "ctx.params"]) expect(stored, code).not.toContain(code);
+      expect(problems).toEqual([]);
+    } finally {
+      await page.request.delete(`/api/security/import?repo=acme/vault&source=${source}`); // imported reports outlive a scan, so leave none behind for other tests
+    }
   });
 });

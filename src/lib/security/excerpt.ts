@@ -3,7 +3,8 @@ import { redactLine } from "./analyzers/secrets";
 
 const MAX_BYTES = 1_000_000;
 const apiBase = () => (process.env.GITHUB_API_URL ?? "https://api.github.com").replace(/\/$/, "");
-const SAFE_PATH = /^[\w@.+\-/ ]{1,300}$/;
+// brackets and parentheses are ordinary in framework file names (Next.js: app/api/orders/[id]/route.ts, app/(shop)/page.tsx); ".." and a leading "/" are still refused below
+const SAFE_PATH = /^[\w@.+\-/ \[\]()]{1,300}$/;
 
 /**
  * A few lines of one file at one commit, read from GitHub with the caller's own access. Same rules as the snippet route: only files a
