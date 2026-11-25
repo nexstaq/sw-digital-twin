@@ -63,25 +63,42 @@ export type GuardState = z.infer<typeof StateSchema>;
 const deny = (reason: DenyReason, detail: string): Decision => ({ ok: false, reason, detail });
 const MAX_URL = 2048;
 
-export function allow(actionInput: unknown, roeInput: unknown, now: number, stateInput: GuardState): Decision {
-  const roeParsed = parseRoe(roeInput);
-  if (!roeParsed.ok) return deny("roe-invalid", `The rules of engagement are not valid: ${roeParsed.errors[0]}`);
-  const roe = roeParsed.roe;
-  if (typeof now !== "number" || !Number.isFinite(now)) return deny("clock-invalid", "The clock reading is not a finite number.");
-  const st = StateSchema.safeParse(stateInput);
-  if (!st.success) return deny("state-invalid", "The run state is not valid, so nothing can be allowed.");
-  const state = st.data;
-  if (state.startedAt > now) return deny("state-invalid", "The run claims to have started in the future.");
+type Prelude = { ok: true; roe: Roe; state: GuardState } | { ok: false; reason: DenyReason; detail: string };
 
-  if (state.killed) return deny("killed", "The kill switch was used. This run is stopped.");
-  if (now < roe.window.notBefore) return deny("not-yet-valid", "The approved time window has not started.");
-  if (now >= roe.window.notAfter) return deny("expired", "The approved time window has ended.");
+/** Everything that can be decided without reading the action: the ROE, the clock, the kill switch, the window and the budgets. */
+function prelude(roeInput: unknown, now: number, stateInput: GuardState): Prelude {
+  const refuse = (reason: DenyReason, detail: string): Prelude => ({ ok: false, reason, detail });
+  const roeParsed = parseRoe(roeInput);
+  if (!roeParsed.ok) return refuse("roe-invalid", `The rules of engagement are not valid: ${roeParsed.errors[0]}`);
+  const roe = roeParsed.roe;
+  if (typeof now !== "number" || !Number.isFinite(now)) return refuse("clock-invalid", "The clock reading is not a finite number.");
+  const st = StateSchema.safeParse(stateInput);
+  if (!st.success) return refuse("state-invalid", "The run state is not valid, so nothing can be allowed.");
+  const state = st.data;
+  if (state.startedAt > now) return refuse("state-invalid", "The run claims to have started in the future.");
+
+  if (state.killed) return refuse("killed", "The kill switch was used. This run is stopped.");
+  if (now < roe.window.notBefore) return refuse("not-yet-valid", "The approved time window has not started.");
+  if (now >= roe.window.notAfter) return refuse("expired", "The approved time window has ended.");
 
   const b = roe.budgets;
-  if (state.stepsUsed >= b.steps) return deny("budget-steps", `The step budget of ${b.steps} is used up.`);
-  if (state.tokensUsed >= b.tokens) return deny("budget-tokens", `The token budget of ${b.tokens} is used up.`);
-  if (now - state.startedAt >= b.wallMs) return deny("budget-time", "The time budget for this run is used up.");
-  if (state.costUsd >= b.costUsd) return deny("budget-cost", `The cost budget of $${b.costUsd} is used up.`);
+  if (state.stepsUsed >= b.steps) return refuse("budget-steps", `The step budget of ${b.steps} is used up.`);
+  if (state.tokensUsed >= b.tokens) return refuse("budget-tokens", `The token budget of ${b.tokens} is used up.`);
+  if (now - state.startedAt >= b.wallMs) return refuse("budget-time", "The time budget for this run is used up.");
+  if (state.costUsd >= b.costUsd) return refuse("budget-cost", `The cost budget of $${b.costUsd} is used up.`);
+  return { ok: true, roe, state };
+}
+
+/** Can this run still do anything at all? The runtime asks this between model steps, with no action in hand. */
+export function checkLimits(roeInput: unknown, now: number, stateInput: GuardState): Decision {
+  const p = prelude(roeInput, now, stateInput);
+  return p.ok ? { ok: true } : p;
+}
+
+export function allow(actionInput: unknown, roeInput: unknown, now: number, stateInput: GuardState): Decision {
+  const p = prelude(roeInput, now, stateInput);
+  if (!p.ok) return p;
+  const { roe, state } = p;
 
   const parsed = ActionSchema.safeParse(actionInput);
   if (!parsed.success) return deny("action-invalid", "The requested action is malformed, so it was refused.");

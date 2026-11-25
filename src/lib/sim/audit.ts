@@ -16,7 +16,7 @@ export const GENESIS = "0".repeat(64);
 const MAX_SUMMARY = 300;
 const MAX_FIELD = 200;
 
-export const AUDIT_KINDS = ["roe", "decision", "tool-result", "finding", "approval", "kill", "end"] as const;
+export const AUDIT_KINDS = ["roe", "decision", "tool-result", "finding", "approval", "kill", "note", "end"] as const;
 
 const hex = z.string().regex(/^[0-9a-f]{64}$/);
 const optText = z.string().max(MAX_FIELD).optional();

@@ -32,6 +32,13 @@ Other docs describe how things work today; they should not carry their own to-do
 | B17 | Simulate state in the URL, so a run can be shared | Not built |
 | B18 | Show a pipeline's jobs and its release in one view | The canvas shows one level; jobs inside a workflow appear only in the step list |
 
+| B19 | Store each run's audit log and head hash; check the head when the log is read | X3 returns them; nothing keeps them, so a cut-off tail cannot yet be detected later |
+| B20 | Per-repository and global limits on concurrent runs and total spend | X3 bounds one run; nothing bounds the number of runs |
+| B21 | Evaluate real models against the range: finding quality, false positives, whether any scope violation ever gets as far as the guard | X3 used scripted models only (X10) |
+| B22 | Widen the sanitiser's patterns, carefully | It misses three of the eight sample forms; the guard covers them, but cutting more reduces how often a model is tempted |
+| B23 | The real network transport for the gray-box probe, reusing the S4 networking code | Not written (X9) |
+| B24 | A screen to approve an intrusive step and to stop a run | The gate and the kill switch exist as code only (X8) |
+
 ## Quality and verification
 
 | ID | Item | Why open |
