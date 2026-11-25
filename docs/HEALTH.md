@@ -29,7 +29,7 @@ Blocks roll up from their children (`rollup.ts`). Cancelled / skipped runs and P
 ## Security rules (important)
 
 - **Anonymous viewers get public repositories only.** The stream first checks the repo without any credentials. A shared `GITHUB_TOKEN` or the App's installation token is only used afterwards, for rate limit. So tokens can never reveal a private repo to a visitor.
-- Private repos need sign-in, which is not built yet (see "Not done yet"). Until then they are refused with a clear message.
+- Private repos need sign-in (GitHub App user authorization, see docs/AUTH.md). A signed-out visitor is refused with a clear message.
 - Webhooks are rejected unless `X-Hub-Signature-256` matches (constant-time compare). With no `GITHUB_WEBHOOK_SECRET` the endpoint answers 503.
 - Stream concurrency is capped per instance (60). The scan endpoint is capped separately (2).
 
@@ -45,7 +45,7 @@ Paste a repo at `/scan`. 60 GitHub requests/hour per server IP unauthenticated; 
 
 Local testing: expose the dev server with a tunnel, or sign a request yourself (HMAC-SHA256 of the raw body with the secret, sent as `X-Hub-Signature-256: sha256=<hex>`).
 
-### GitHub App (for private repos later)
+### GitHub App (private repos and sign-in)
 Register at https://github.com/settings/apps/new (or paste the manifest below at `https://github.com/settings/apps/new?` via the manifest flow). Read-only permissions only.
 
 ```json
@@ -69,13 +69,9 @@ Then set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`. `tokenFor()` mints instal
 
 ## Not done yet
 
-(Sign-in, the install flow, repo picker and private-repo scanning landed in P4b: see docs/AUTH.md.)
+Sign-in, the install flow, the repo picker, private-repo scanning with an installation token, and stored health history all landed (docs/AUTH.md, docs/CONNECTORS.md). Still open (see docs/BACKLOG.md):
 
-Still open from P4:
-
-- **Sign-in** (Clerk via the Vercel Marketplace) and the **App install flow / repo picker**. These need a provisioned Clerk instance and a registered App.
-- **Private-repo scanning**: `cloneRepo` still clones anonymously. It should use an installation token (via a git credential helper, never in the URL or logs).
-- **Shared queue**: the bus is in-process. On several instances a webhook only wakes streams on the instance that received it; others catch up within 20s. Swap in Vercel Queues / Redis behind `bus.ts`.
-- **Persistence**: no health history is stored yet (P6 adds frames for replay).
-- **Code scanning alerts** as a signal.
-- Live-GitHub behaviour of the App token path is unit-tested only (generated RSA key, mocked GitHub), not against a real App.
+- **Shared queue (B2)**: the bus (`src/lib/github/bus.ts`) is in-process. On several instances a webhook only wakes streams on the instance that received it; the others catch up within 20 s. Swap in Vercel Queues or Redis behind `bus.ts`.
+- **Code scanning alerts as a health signal**: S3 reads them for the security view only.
+- **The App token path** (minting installation tokens) is unit-tested with a generated RSA key and a mocked GitHub, not exercised against a live App in tests.
+- Several sources for one node: the worse state wins and every source explains itself (by design).

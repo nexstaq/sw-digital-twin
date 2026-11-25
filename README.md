@@ -18,7 +18,7 @@ Live at <https://sw-digital-twin.nexstaq.com>. There is a no-sign-in demo at `/d
 | **Scheduled scans** | Opt-in daily or weekly re-scans (and re-checks of verified domains) from a Vercel Cron job. |
 | **Sharing** | Read-only share links, an embeddable README badge, and a browser extension that adds a "View Twin" button on github.com. |
 
-Design notes and decisions live in [`docs/`](docs): [PLAN](docs/PLAN.md), [INGEST](docs/INGEST.md), [HEALTH](docs/HEALTH.md), [CONNECTORS](docs/CONNECTORS.md), [AUTH](docs/AUTH.md), [SECURITY](docs/SECURITY.md), [SECURITY-ANALYSIS](docs/SECURITY-ANALYSIS.md).
+Design notes and decisions live in [`docs/`](docs): [PLAN](docs/PLAN.md), [INGEST](docs/INGEST.md), [HEALTH](docs/HEALTH.md), [CONNECTORS](docs/CONNECTORS.md), [AUTH](docs/AUTH.md), [SECURITY](docs/SECURITY.md), [SECURITY-ANALYSIS](docs/SECURITY-ANALYSIS.md), [BACKLOG](docs/BACKLOG.md) (open work). Build prompts: [PROMPTS](docs/PROMPTS.md), [PROMPTS-SECURITY](docs/PROMPTS-SECURITY.md), [PROMPTS-SIM](docs/PROMPTS-SIM.md).
 
 ## Run it locally
 

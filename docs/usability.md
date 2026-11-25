@@ -21,7 +21,7 @@
 
 - Tile subtitles are small (≈11px, two lines, truncated). Fine at a glance, tight for long sentences. Needs a real read-through.
 - "What changed in the last deploy?" answers with the last deploy's age/result and the deploy-related parts. It does **not** yet map the commit's changed files onto nodes (that needs the GitHub compare API plus ownership mapping, planned for P6 with replay).
-- The **Risk** lens only emphasises the exposure surface (endpoints, external services, data stores). There are no vulnerability or secret-scanning signals yet, so it says nothing about *actual* risk.
+- The **Risk** lens only emphasises the exposure surface (endpoints, external services, data stores). Real vulnerability and secret findings now live in the separate Security view (S1 to S4, maintainers only), not in this lens; the two are not yet joined.
 - AI features (free-form `⌘K`, "Ask AI about this", persona descriptions) were exercised with mock models and with no key. Output quality on a live model is **unverified**.
 - No screen-reader pass yet beyond roles/labels on the new dialogs (palette is `role=dialog aria-modal`, verdict popover is `role=dialog` and closes on Esc).
 

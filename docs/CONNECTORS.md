@@ -19,7 +19,7 @@ Everything downstream is one pure function: **`applyHealth(graph, signalsAt(sign
 | **Sentry** | `SENTRY_AUTH_TOKEN` (read scopes: `org:read`, `project:read`, `event:read`) + `SENTRY_ORG` | errors/min per project (hourly, Sentry's finest stats grain) and the top 3 unresolved issues, linked, on the unhealthy node |
 | **Vercel** | `VERCEL_TOKEN` + `VERCEL_PROJECT_ID` (`VERCEL_TEAM_ID` if a team) | deployments → health of the matching environment node (`production`, `preview`) and the timeline. Runtime logs are not read. |
 
-Then **enable the repo**: `CONNECTOR_REPOS=owner/name`. Open **Sources** in the top bar: each tool's services are auto-matched to nodes by name and shown for a one-time **Confirm**. Nothing is used until confirmed. Confirmations are kept in this browser (`localStorage`) until accounts exist.
+Then **enable the repo**: `CONNECTOR_REPOS=owner/name`. Open **Sources** in the top bar: each tool's services are auto-matched to nodes by name and shown for a one-time **Confirm**. Nothing is used until confirmed. Confirmations are saved on the server and shared with everyone who can see the repo when you have write access (`/api/mappings`); otherwise they stay in this browser (`localStorage`).
 
 ## How health is decided (runtime)
 
@@ -37,7 +37,7 @@ Then **enable the repo**: `CONNECTOR_REPOS=owner/name`. Open **Sources** in the 
 
 ## Persistence
 
-`src/lib/persist`: `putBuckets / getBuckets / putSnapshot / listSnapshots / getSnapshot`. Default: JSON files in `.data/` (dev, self-host; single writer). `TWIN_PERSIST=memory` (and automatically on Vercel) keeps it in memory. **Production needs a Blob/Postgres adapter behind the same interface**: not built yet, so pushed OTLP data does not survive a serverless cold start.
+`src/lib/persist`: `putBuckets / getBuckets / putSnapshot / listSnapshots / getSnapshot`. Default: JSON files in `.data/` (dev, self-host; single writer). `TWIN_PERSIST=memory` (and automatically on Vercel) keeps it in memory. With `DATABASE_URL` set, the Neon Postgres adapter (`pg.ts`) is used behind the same interface, so pushed OTLP data survives cold starts. Without it, Vercel falls back to memory and loses data on a cold start.
 Each public scan also stores its map keyed by commit sha (`/api/snapshots?repo=`). Replay currently uses the latest map; choosing the map that existed at the replayed time is not wired into the UI yet.
 
 ## Security
@@ -50,4 +50,12 @@ Each public scan also stores its map keyed by commit sha (`/api/snapshots?repo=`
 
 Verified: engine, anomaly, incident finder, persistence adapters, OTLP parsing/auth, matching, caching (unit tests, 213 total); the seeded incident replay in a browser; OTLP ingest → match → confirm → red node in a browser against a mock GitHub.
 **Not verified against live services**: Sentry and Vercel (built from their documented response shapes and tested with mocks), any real OpenTelemetry SDK exporter, and Sentry's stats grain being hourly means Sentry-only alerts lag by up to ~2 hours (use OTLP for fast signals).
-Not built: Datadog/Prometheus connectors, OTLP metrics/logs and protobuf, Sentry webhooks, shared (cross-device) mappings, snapshot selection during replay, changed-files mapping for "what changed in the last deploy".
+Not built (docs/BACKLOG.md): Datadog/Prometheus connectors, OTLP metrics/logs and protobuf, Sentry webhooks, snapshot selection during replay (B3), changed-files mapping for "what changed in the last deploy" (B4).
+
+## Checking Sentry and Vercel against the real services (B5)
+Both connectors were written from the providers' documented response shapes and tested with mocks. Before trusting them, do this once with the operator's own tokens, on a repo listed in `CONNECTOR_REPOS`:
+
+1. **Sentry.** Create an internal integration with read scopes `org:read`, `project:read`, `event:read`. Set `SENTRY_AUTH_TOKEN` and `SENTRY_ORG`. Open Sources: every Sentry project should appear as a proposed match. Trigger a test error in one project; within about 2 hours (hourly stats) the matched node should show errors/min and the top issue with a working link. Note any field the connector did not find.
+2. **Vercel.** Create a token scoped to the one team. Set `VERCEL_TOKEN` and `VERCEL_PROJECT_ID` (plus `VERCEL_TEAM_ID`). Deploy once; the `production` environment node should show that deployment's state and the timeline should list it. Cancel a deployment and confirm it does not turn the node red.
+3. **Negative checks.** Remove `CONNECTOR_REPOS` and confirm every connector reports "not enabled" and fetches nothing. Use a wrong token and confirm the error shown does not contain it.
+4. Record the date, what matched, and what did not, here under this heading. Until then the connectors stay listed as **not verified against live services**.

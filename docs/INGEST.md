@@ -17,12 +17,12 @@
 - Every node has >= 1 evidence ref (`path`, optional `lines`); enforced by `validateGraph` and tests.
 - Nothing from the repo is executed. Symlinks are never followed; reads cannot escape the checkout.
 - A detector crash/timeout becomes a warning and the scan keeps its partial map.
-- All nodes start `unknown`: there is no live signal until P4+. The banner says NO DATA, not GO.
+- A node with no live signal stays `unknown`, never green. The banner says NO DATA, not GO.
 
-## Known limits (deliberate for now)
-- Public repos only; private repos arrive with the GitHub App (P4).
-- Clone runs on the app server via `git`. Production should run it inside Vercel Sandbox (the `analyzeDirectory` seam is already separate for this) and drive it with Vercel Workflow for durability.
+## Known limits (open items are tracked in docs/BACKLOG.md)
+- Where the code comes from: `cloneRepo` uses `git` when the binary exists (local, self-host). Vercel's runtime has no git, so there it downloads GitHub's tarball of one ref and unpacks it with `tarball.ts` (size, file-count and path-escape limits; no history, so no churn hotspots). Private repos use the GitHub App installation token (never in argv, the URL or `.git/config`).
+- The scan runs inside the request, not in Vercel Sandbox, and is not a durable Workflow: a function timeout loses the scan (partial maps are streamed as they form). Tracked as B1.
 - Tree-sitter covers TS/JS/Python. Go/Java/Ruby/Rust get manifest-level detection only.
-- No LLM yet: grouping is deterministic. P3 adds naming/clustering on top and must cite existing evidence.
-- Unauthenticated endpoint with an in-memory concurrency cap of 2. Needs auth and rate limiting before public launch.
-- Wasm grammars are listed in `outputFileTracingIncludes` for deploy; not yet verified on a real Vercel deployment.
+- Grouping is deterministic; the optional language layer (P3, `src/lib/narrate`) only names and describes, and must cite existing evidence.
+- Access: the scan route checks `authorizeRepo`, is rate limited, BotID-protected on Vercel, and capped at 2 concurrent per instance.
+- Wasm grammars are listed in `outputFileTracingIncludes` for `/api/scan` and `/api/security/scan`. Not recorded as verified on a production deployment (B7).
