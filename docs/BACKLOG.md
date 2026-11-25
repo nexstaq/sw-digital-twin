@@ -18,6 +18,16 @@ Other docs describe how things work today; they should not carry their own to-do
 | B9 | Health signal from code-scanning alerts; join the Risk lens with Security findings | S3 reads alerts for the security view only; the lens still shows exposure surface only | docs/HEALTH.md, docs/usability.md |
 | B10 | Live-App test of the installation-token path | Unit-tested with a generated key and mocked GitHub only | docs/HEALTH.md |
 
+## Simulation (from X1)
+
+| ID | Item | Why open |
+|---|---|---|
+| B11 | Real emulated servers in Vercel Sandbox | Only if a later prompt needs them. The virtual range does not, and has no network by construction |
+| B12 | Run the range on a real scanned repository and record what it got wrong | X1 was tested on fixtures and the demo graph only |
+| B13 | Persist ranges and run events; an API route to start one | Needs the rules-of-engagement flow (X3, X8) first |
+| B14 | Weaknesses the scanner cannot find (IDOR, business logic) | The range is seeded only from findings; X5 needs another source, such as an imported report |
+| B15 | Tie a finding to one handler, not every route in its file | The map does not carry line-to-handler mapping for routes |
+
 ## Quality and verification
 
 | ID | Item | Why open |
