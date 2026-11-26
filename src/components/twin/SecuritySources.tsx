@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Check, Copy, FileUp, TriangleAlert } from "lucide-react";
-import { ciWorkflow } from "@/lib/security/ci";
+import { ciWorkflow, simulationWorkflow } from "@/lib/security/ci";
 import { MAX_SARIF_BYTES } from "@/lib/security/sarif-import";
 import type { FindingSet } from "@/lib/security/types";
 import { PassiveChecks } from "./PassiveChecks";
@@ -17,6 +17,8 @@ export function SecuritySources({ repo, set, onImported }: { repo: string; set: 
   const [busy, setBusy] = useState(false);
   const [showCi, setShowCi] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showSim, setShowSim] = useState(false);
+  const [copiedSim, setCopiedSim] = useState(false);
   const entries = Object.entries(set.sources ?? {});
 
   const upload = async (file: File | undefined) => {
@@ -46,6 +48,8 @@ export function SecuritySources({ repo, set, onImported }: { repo: string; set: 
 
   let yaml = "", yamlError = "";
   if (showCi) { try { yaml = ciWorkflow({ origin: window.location.origin }); } catch { yamlError = "Live testing needs this site to be served over https."; } }
+  let simYaml = "", simYamlError = "";
+  if (showSim) { try { simYaml = simulationWorkflow({ origin: window.location.origin }); } catch { simYamlError = "The simulation test needs this site to be served over https."; } }
 
   return (
     <details className="group rounded-lg border border-line bg-raised/60 p-2.5" aria-label="Sources and integrations">
@@ -71,6 +75,7 @@ export function SecuritySources({ repo, set, onImported }: { repo: string; set: 
           <input type="file" accept=".sarif,.json,application/json" className="sr-only" disabled={busy} aria-label="Import a SARIF report" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} />
         </label>
         <button onClick={() => setShowCi((v) => !v)} aria-expanded={showCi} className="rounded-md border border-line px-2 py-1 text-[11px] text-ink-dim hover:text-ink">{showCi ? "Hide" : "Add live testing to your CI"}</button>
+        <button onClick={() => setShowSim((v) => !v)} aria-expanded={showSim} className="rounded-md border border-line px-2 py-1 text-[11px] text-ink-dim hover:text-ink">{showSim ? "Hide" : "Add an authorised simulation test to your CI"}</button>
       </div>
       <p className="mt-1.5 text-[10.5px] leading-snug text-ink-faint">Reports from Semgrep, CodeQL, Trivy, ZAP, Nuclei, gitleaks and other tools that write SARIF can be imported. A new report from the same tool replaces its previous one.</p>
       {msg && <p role={msg.ok ? "status" : "alert"} className={`mt-1.5 text-[11px] leading-snug ${msg.ok ? "text-nominal" : "text-failing"}`}>{msg.text}</p>}
@@ -91,6 +96,25 @@ export function SecuritySources({ repo, set, onImported }: { repo: string; set: 
             <>
               <pre className="max-h-56 overflow-auto rounded-md border border-line bg-void p-2 font-mono text-[10.5px] leading-relaxed text-ink-dim" aria-label="Workflow file">{yaml}</pre>
               <button onClick={async () => { try { await navigator.clipboard.writeText(yaml); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { setMsg({ ok: false, text: "Copy failed. Select the text and copy it." }); } }} className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-ink-dim hover:text-ink">{copied ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />} Copy workflow</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {showSim && (
+        <div className="mt-3 space-y-2 text-[11px] leading-snug text-ink-dim" aria-label="Authorised simulation test in your CI">
+          <p>This also runs <span className="text-ink">in your own repository</span>, against a staging site <span className="text-ink">you</span> name, but asks a different question: can the public surface reach something it should not, or does a route your map says is private answer anonymously? It makes two short requests to Mission Control first, to find out exactly which (gentle, GET-only) requests it may then make; Mission Control itself sends nothing to your site.</p>
+          <ol className="list-decimal space-y-0.5 pl-4">
+            <li>Save the file below as <code className="font-mono text-ink">.github/workflows/simulation-test.yml</code> in this repository.</li>
+            <li>In the repository&apos;s Actions <span className="text-ink">Variables</span>, set <code className="font-mono text-ink">SECURITY_TEST_TARGET</code> to your staging URL (the same variable the live test above uses, if you have both).</li>
+            <li>Set <code className="font-mono text-ink">SECURITY_TEST_CONFIRM_OWNER</code> to <code className="font-mono text-ink">yes</code> only if you own that site or are authorised to test it.</li>
+            <li>Optionally set <code className="font-mono text-ink">SECURITY_TEST_PROFILE</code> to <code className="font-mono text-ink">access</code> (default) or <code className="font-mono text-ink">reachability</code>.</li>
+            <li>Run it from the Actions tab. Results appear here, category &quot;Live testing&quot;.</li>
+          </ol>
+          {simYamlError ? <p role="alert" className="text-degraded">{simYamlError}</p> : (
+            <>
+              <pre className="max-h-56 overflow-auto rounded-md border border-line bg-void p-2 font-mono text-[10.5px] leading-relaxed text-ink-dim" aria-label="Simulation workflow file">{simYaml}</pre>
+              <button onClick={async () => { try { await navigator.clipboard.writeText(simYaml); setCopiedSim(true); setTimeout(() => setCopiedSim(false), 1500); } catch { setMsg({ ok: false, text: "Copy failed. Select the text and copy it." }); } }} className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-ink-dim hover:text-ink">{copiedSim ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />} Copy workflow</button>
             </>
           )}
         </div>

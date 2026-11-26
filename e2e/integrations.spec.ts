@@ -220,6 +220,21 @@ test.describe("other sources: GitHub alerts, imported reports, live testing from
     await expect(ci.getByRole("button", { name: "Copy workflow" })).toBeVisible();
   });
 
+  test("the authorised simulation test is offered separately, asks Mission Control first, and sends nothing itself", async ({ page }) => {
+    await scanVault(page);
+    await openSources(page);
+    await sources(page).getByRole("button", { name: "Add an authorised simulation test to your CI" }).click();
+    const sim = sources(page).getByLabel("Authorised simulation test in your CI");
+    await expect(sim).toContainText("Mission Control itself sends nothing to your site");
+    await expect(sim).toContainText("SECURITY_TEST_TARGET");
+    await expect(sim).toContainText("only if you own that site or are authorised to test it");
+    const yaml = await sim.getByLabel("Simulation workflow file").innerText();
+    for (const s of ["id-token: write", "workflow_dispatch", "SECURITY_TEST_CONFIRM_OWNER", "SECURITY_TEST_PROFILE", `MC_ORIGIN: ${APP}`, "/api/security/simulate/ci-plan?repo=$GITHUB_REPOSITORY", "/api/security/simulate/ci-report?repo=$GITHUB_REPOSITORY"]) expect(yaml, s).toContain(s);
+    expect(yaml).not.toContain("pull_request");
+    expect(yaml).not.toContain("docker run");
+    await expect(sim.getByRole("button", { name: "Copy workflow" })).toBeVisible();
+  });
+
   test("the report lists every source, including the ones that were not available, and labels live testing", async ({ page }) => {
     await scanVault(page);
     await openSources(page);

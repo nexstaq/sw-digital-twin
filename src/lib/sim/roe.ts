@@ -41,7 +41,7 @@ const domainName = z.string().max(253).transform((s, ctx) => {
 });
 
 /** https, default port, no credentials, no path: the origin of a staging site that the customer's own CI will test. */
-const stagingOrigin = z.string().max(300).transform((s, ctx) => {
+export const stagingOrigin = z.string().max(300).transform((s, ctx) => {
   const bad = (message: string) => { ctx.addIssue({ code: "custom", message }); return z.NEVER; };
   let u: URL;
   try { u = new URL(s); } catch { return bad("must be an https URL"); }

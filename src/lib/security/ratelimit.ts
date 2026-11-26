@@ -53,6 +53,8 @@ export const LIMITS = {
   explain: { name: "explain", max: 10, windowMs: 60_000 },
   domains: { name: "domains", max: 30, windowMs: 60_000 },
   passive: { name: "passive", max: 6, windowMs: 60_000 },
+  ciPlan: { name: "ciPlan", max: 6, windowMs: 60_000 },
+  ciReport: { name: "ciReport", max: 6, windowMs: 60_000 },
   write: { name: "write", max: 30, windowMs: 60_000 },
 } satisfies Record<string, Limit>;
 

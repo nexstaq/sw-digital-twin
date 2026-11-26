@@ -17,6 +17,7 @@ Live at <https://sw-digital-twin.nexstaq.com>. There is a no-sign-in demo at `/d
 | **Plain English** | Optional AI descriptions and "ask the map" questions. Private repos never go to the free dev key. |
 | **Security** | Dependency advisories with reachability, secrets, code rules, pipeline and container checks, attack paths, OWASP and CWE views, SARIF import, GitHub alerts, trend over time, printable report. |
 | **Live site checks** | Passive TLS, header, cookie, exposed-file and email-DNS checks, only after you prove domain ownership, and re-proved on every run. |
+| **Authorised CI testing** | Two GitHub Actions workflows you generate, review and enable yourself, that run on your own runner against your own staging site: a live scanner test (Nuclei, gentle by default) and an authorised simulation test (does a private route answer anonymously? which routes are actually live?). Both need an explicit confirmation variable, run manual or weekly only, never on a pull request, and authenticate with GitHub's own short-lived OIDC token. This service never sends a request to your site itself. |
 | **Scheduled scans** | Opt-in daily or weekly re-scans (and re-checks of verified domains) from a Vercel Cron job. |
 | **Sharing** | Read-only share links, an embeddable README badge, and a browser extension that adds a "View Twin" button on github.com. |
 

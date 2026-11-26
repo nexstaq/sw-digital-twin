@@ -30,7 +30,7 @@ async function codeOnly(page: Page) {
 
 test.describe("verify by simulation", () => {
   test("every door refuses anonymous callers", async ({ request }) => {
-    for (const [method, url] of [["POST", "/api/security/simulate?repo=acme/shop"], ["DELETE", "/api/security/simulate?repo=acme/shop"], ["GET", "/api/security/simulate/patch?repo=acme/shop&finding=x"]] as const) {
+    for (const [method, url] of [["POST", "/api/security/simulate?repo=acme/shop"], ["DELETE", "/api/security/simulate?repo=acme/shop"], ["GET", "/api/security/simulate/patch?repo=acme/shop&finding=x"], ["POST", "/api/security/simulate/ci-plan?repo=acme/shop"], ["POST", "/api/security/simulate/ci-report?repo=acme/shop"]] as const) {
       expect((await request.fetch(url, { method })).status(), `${method} ${url}`).toBe(401);
     }
   });

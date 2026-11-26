@@ -56,7 +56,9 @@ Other docs describe how things work today; they should not carry their own to-do
 | B38 | Offer the candidate request-volume anomaly rule as a real, installable addition to the health engine | X7 only demonstrates it inside the detection check; `health/runtime.ts` is untouched |
 | B39 | Run a real Lighthouse accessibility audit of the Simulation page | X8 asked for ≥95; this environment has no Lighthouse CLI, so a landmarks/labels/keyboard pass was done by hand instead and the score is not claimed |
 | B40 | Embed "Explain a block" (the Simulate lens) directly on the Simulation page, instead of linking out to the map | X8 judged duplicating the whole Canvas/Simulate-lens tree on a second page not worth the risk; the link-out is a deliberate, documented simplification |
-| B41 | A real approval screen and ROE creation flow for a REAL target (not range-only) | X8's pre-flight screen is for the range-only run; the real-target approval gate is X9's own work, still just a design in the ROE type |
+| B41 | A real approval screen and ROE creation flow for a human-approved real target (the verified-domain path, not range-only, and not the CI-runner path X9 built) | X8's pre-flight screen is for the range-only run; X9 covers the CI-runner path (no human approval needed, OIDC + the repo's own confirmation); the verified-domain path is still just a design in the ROE type |
+| B42 | A UI on the Simulation page (X8) to configure or trigger X9's authorised CI run, instead of copying the generated workflow by hand | X9 is reached only from "Sources and live testing" on the Security page |
+| B43 | Run X9's generated workflow on a real GitHub Actions runner | Tested against the exported route handlers and the YAML's own shape only, not a real run (B31, shared with X4–X6) |
 
 ## Quality and verification
 
