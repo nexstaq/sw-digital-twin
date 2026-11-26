@@ -25,6 +25,21 @@
 - AI features (free-form `⌘K`, "Ask AI about this", persona descriptions) were exercised with mock models and with no key. Output quality on a live model is **unverified**.
 - No screen-reader pass yet beyond roles/labels on the new dialogs (palette is `role=dialog aria-modal`, verdict popover is `role=dialog` and closes on Esc).
 
+## Personas and tasks: Verify by simulation and the Simulation page (X10)
+
+Same method as the table above (builder walkthrough, Playwright, timings measured, not user research), against the real app (`acme/vault` fixture, a scan already run).
+
+| Persona | Task | What they do | Observed |
+|---|---|---|---|
+| **Exec** | "Are we resilient?" | Open Security, read the grade | The grade (`F`, score `0/100`) was on screen **~0.9s after clicking Scan**. But the grade answers "how many things are wrong and how bad", not "resilient" in the sense the question actually asks (could an attacker reach anything that matters). The more direct answer to THIS question — the crown-jewel reachability summary ("1 of 1 crown jewel reached, high likelihood, via 4 distinct entry points") — lives one page and one tab away (`/simulate`, "Check reachability"), not on the page this persona opens first. |
+| **Security lead** | "What could an attacker reach?" | Open `/simulate`, "Check reachability", approve, read the replay | The replay was visible **~0.7s after approving**. The first step shown is sorted by severity/category, not led with the plain-language reachability summary sentence; a security lead has to read past the first finding's title to find the sentence that actually answers the question. |
+| **Engineer** | "How does this block work?" | Open `/simulate`, "Explain a block" (the default tab) | Guidance appeared **~0.3s after navigation** (it is static text, no data to load). It correctly points to the Simulate lens on the map, but it is a link-out, not the thing itself: this persona takes one more click and a context switch before actually seeing a block explained. |
+
+**Findings from this pass (not fixed, honest gaps):**
+1. The exec's question is answered by the WRONG number first (a vulnerability-count grade, not a reachability likelihood). Fixing this means either explaining the grade does not mean "resilient", or giving the exec a one-line resilience sentence on the Security page itself, sourced from the same data the reachability replay already computes (B44).
+2. The security lead's replay leads with whichever finding sorts first, not with the sentence that answers their actual question. The aggregate sentence already exists (in `notes`); it is not the first thing the eye lands on (B45).
+3. "Explain a block" is a signpost, not an answer, consistent with B40 (it was deliberately kept a link-out rather than embedding the Canvas a second time); an engineer who wants a plain-English block explanation takes an extra hop to get one.
+
 ## Protocol for the real test (3 people per persona, ~15 min each)
 
 Show `/demo` or a live repo with one seeded failure. No coaching.

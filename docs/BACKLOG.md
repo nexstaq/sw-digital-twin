@@ -34,7 +34,7 @@ Other docs describe how things work today; they should not carry their own to-do
 
 | B19 | Store each run's audit log and head hash; check the head when the log is read | X3 returns them; nothing keeps them, so a cut-off tail cannot yet be detected later |
 | B20 | Per-repository and global limits on concurrent runs and total spend | X3 bounds one run; nothing bounds the number of runs |
-| B21 | Evaluate real models against the range: finding quality, false positives, whether any scope violation ever gets as far as the guard | X3 used scripted models only (X10) |
+| B21 | Evaluate REAL models against the range: finding quality, false positives, whether any scope violation ever gets as far as the guard | X10's eval suite (golden runs + a scope-violation gate, in CI) uses scripted models throughout, same reasoning as X3: real-model evaluation needs an API key, real cost and accepts nondeterminism, none of which this suite does |
 | B22 | Widen the sanitiser's patterns, carefully | It misses three of the eight sample forms; the guard covers them, but cutting more reduces how often a model is tempted |
 | B23 | The real network transport for the gray-box probe, reusing the S4 networking code | Not written (X9) |
 | B24 | A screen to approve an intrusive step and to stop a run | The gate and the kill switch exist as code only (X8) |
@@ -59,6 +59,12 @@ Other docs describe how things work today; they should not carry their own to-do
 | B41 | A real approval screen and ROE creation flow for a human-approved real target (the verified-domain path, not range-only, and not the CI-runner path X9 built) | X8's pre-flight screen is for the range-only run; X9 covers the CI-runner path (no human approval needed, OIDC + the repo's own confirmation); the verified-domain path is still just a design in the ROE type |
 | B42 | A UI on the Simulation page (X8) to configure or trigger X9's authorised CI run, instead of copying the generated workflow by hand | X9 is reached only from "Sources and live testing" on the Security page |
 | B43 | Run X9's generated workflow on a real GitHub Actions runner | Tested against the exported route handlers and the YAML's own shape only, not a real run (B31, shared with X4–X6) |
+| B44 | Answer the exec's real question ("are we resilient?") directly on the Security page, not just a vulnerability-count grade | X10's usability pass: the grade loads fast but answers a different question; the reachability likelihood that actually answers this lives on a different page and tab |
+| B45 | Lead the reachability replay with its own plain-language summary sentence, not whichever finding happens to sort first | X10's usability pass: the sentence already exists in `notes`; it is not the first thing shown |
+| B46 | A "delete everything for this repository" endpoint | X10's privacy review: a maintainer can remove one imported report, domain or share link, but not purge a repository's whole record in one action |
+| B47 | A single, enforced "metadata-only" mode, instead of several independently-defaulted switches that currently add up to the same thing | X10's privacy review: the simulation's source-read checkbox defaults off and AI explanations never take source regardless, but no one flag guarantees it |
+| B48 | Generate an SBOM for this repository's own dependencies in CI | X10: needs a third-party tool (`@cyclonedx/cyclonedx-npm`) this session could not verify running safely first |
+| B49 | Run this project's own security scanner against this repository, in CI | X10: the scan pipeline currently assumes the request/response cycle of the Security page, not a standalone CI invocation |
 
 ## Quality and verification
 

@@ -1,0 +1,22 @@
+name: Agent eval suite
+on:
+  push: { branches: [main] }
+  pull_request: {}
+
+permissions: { contents: read }
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      # Golden range runs scored on true findings, false positives and missed confirmations, plus a representative
+      # slice of the prompt-injection suite scored on scope violations. The build fails on any violation or score
+      # regression (the assertions are in suite.test.ts); the scorecard above that failure is this run's own log,
+      # and also goes into the step summary below.
+      - name: Run the eval suite (fails the build on any scope violation or score regression)
+        run: npx vitest run src/lib/sim/eval 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"

@@ -75,6 +75,79 @@ free-tier model; answers citing an id or version not in the facts are discarded.
   Covers paste URL -> map -> drill-down -> failing step, private-repo access, sign-in/out, share + revoke, overrides, CSP on
   every page, security headers, anonymous write refusal and rate limiting. CI: `.github/workflows/ci.yml`.
 
+## Assurance for the simulation agents themselves (X10)
+
+The simulation feature (X0-X9: white-box, gray-box, red-team, the blue observer, and the two routes to a real target)
+is treated as high-risk software in its own right, not exempted because it is "only testing".
+
+**Eval suite, in CI (`src/lib/sim/eval/`, `.github/workflows/eval.yml`).** Golden range runs with a known right answer
+(not just a passing test suite that might not notice a regression), scored on true findings, false positives, missed
+confirmations, and a representative slice of X3's own prompt-injection suite scored on scope violations. **The build
+fails on any scope violation or score regression.** The full, exhaustive injection suite (60 cases) stays in
+`injection.test.ts`; the eval suite's own slice is there to make the CI gate visible and fast, not to replace it.
+
+**"Red team the red team"**: already built across X0-X9, not duplicated here.
+- Prompt injection (README, a finding's text, an advisory, a range response, a tool's output; a model that obeys
+  everything it reads): `agent/injection.test.ts`, 60 cases, plus the eval suite's own representative slice.
+- Tool-argument smuggling (a fake tool-call embedded as text, a forbidden technique named in prose, Unicode
+  look-alike hosts): the same suite's `fakeToolCall`/`lookalike`/`forbiddenTechnique` payloads; `scope.test.ts`'s
+  look-alike table and prototype-pollution/garbage-input tests (15 deliberate guard breakages, all caught).
+- DNS rebinding and redirect tricks against the scope guard: `scope.test.ts` (host-confusion table), S4's transport
+  tests (public addresses only, no redirects off the validated host).
+- Sandbox egress attempts: `isolation.test.ts` (the range has no network of its own, by construction) and the agent
+  runtime's own tests (a tool gets only a frozen abort signal, never a way to reach the real ROE, state or approvals).
+- Oversized outputs: `agent/untrusted.test.ts` (depth, item-count and character caps on anything quoted from outside).
+- A malicious repository fixture: the range is built from graph *metadata* only and never repo text or code, tested
+  with literal canary strings (`generate.test.ts`, `isolation.test.ts`) that must never appear in anything the range
+  produces.
+
+**Privacy review.**
+- *What leaves the server, and to which provider.* The four simulation checks (white-box, gray-box, red-team, blue)
+  use no model at all — deterministic code only. The separate "explain"/"ask the map" features (unrelated to
+  simulation) pick a model via the AI Gateway (any provider, `NARRATE_MODEL`, default `anthropic/claude-sonnet-5-5`) or
+  a dev-only Google key; a private repository never uses the free-tier dev key. Findings text sent to a model never
+  includes source code or a secret's value (checked for: a reply citing an id or version not in the given facts is
+  discarded).
+- *Source code.* Read only when a maintainer explicitly checks "Let it read the few lines around each finding" on
+  "Verify by simulation" (off by default, each run); even then, only the few lines around one finding, through the
+  caller's own GitHub access, never stored, never sent to a model. A proposed patch is a diff made fresh from that
+  read, every time it is asked for; it is never persisted.
+- *Retention.* Runtime telemetry (health buckets) is capped at 7 days (`RETENTION_MS`, `persist/types.ts`) and
+  dropped on write past that. **Findings, maps and simulation verdicts have no automatic expiry**: they are replaced
+  by the next scan or simulation run, but nothing deletes them on its own. There is no account- or repository-level
+  "delete everything" endpoint (B46): a maintainer can remove an imported report, a domain, or a share link
+  individually, but not purge a repository's whole record in one action.
+- *Redaction.* The audit log (`audit.ts`) caps every field's length and is designed to hold nothing secret-shaped in
+  the first place (synthetic range credentials, no request bodies, no response bodies beyond a capped marker);
+  tested directly (X3: nothing secret-shaped in a run's model view, log, result or console).
+- *"Metadata-only" is not one named toggle*, honestly: it is the DEFAULT state of several independent switches (the
+  simulation's source-read checkbox defaults off; the AI-explanation path never takes source regardless of any
+  switch). There is no single flag that guarantees "nothing but metadata will ever be read," only several
+  independently-tested defaults that currently add up to that (B47, if a single enforced mode is wanted later).
+
+**Supply chain.** No new runtime or build dependency was added for the whole simulation feature (X0-X9): every check
+reuses `zod`, the `yaml` parser already used for pipeline analysis, and Node's own `crypto` — verified directly
+(`git log --oneline -- package.json` shows no commit in this range). An SBOM for this repository's own dependencies,
+generated in CI, and a run of this project's own scanner against this repository, are both **not done** (B48, B49):
+the former needs a third-party tool this session could not verify running safely first; the latter needs the scan
+pipeline wired to run outside the request/response cycle it currently assumes.
+
+**Operational.**
+- *Rate limits* exist per client address, per route (above). **Not done:** global (cross-instance) limits and
+  spend caps with alerts, and exporting the audit log anywhere it survives past one run's own result (B19, B20,
+  already tracked).
+- *Incident runbook: "an agent did something out of scope".* If `allow()` ever let something through it should not
+  have: **1.** Kill it — `DELETE /api/security/simulate?repo=<repo>` stops every run for that repository immediately
+  (the kill switch is checked before every action and the range is torn down once; other repositories' runs are
+  unaffected). **2.** Read the log — every run's audit entries are hash-chained (`verifyChain`); pull the stored
+  `runId`/`head` from the finding's own `simulation` field and check the chain has not been cut or edited. **3.**
+  Reproduce — every agent is deterministic given the same inputs (X1-X9's own determinism tests); re-run it against
+  the same snapshot and finding set to confirm, rather than trusting a one-off log line. **4.** Fix the guard, not the
+  symptom — a real scope violation means `allow()` (`scope.ts`) itself is wrong; patch that one file, add the exact
+  case to `scope.test.ts`, and re-run the eval suite before considering it closed. **5.** Nothing here ever reached a
+  real third party by construction unless the target was a verified domain or a customer's own `ci-runner`: check
+  `ownershipProvedAt` and the ROE's own target list in the log first, before assuming real damage.
+
 ## Browser extension (P7)
 See `extension/README.md`. Security shape: runs only on `github.com/*/*`; reads only the URL; the one network call is made by a
 background worker to the single host in `host_permissions`; the page world never sees the request, a cookie or a token; the
