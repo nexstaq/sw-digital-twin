@@ -4,7 +4,7 @@ export const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const
 export const SeveritySchema = z.enum(SEVERITIES);
 export type Severity = z.infer<typeof SeveritySchema>;
 
-export const CATEGORIES = ["dependency", "secret", "pipeline", "container", "code", "runtime"] as const;
+export const CATEGORIES = ["dependency", "secret", "pipeline", "container", "code", "runtime", "detection-gap"] as const;
 export const CategorySchema = z.enum(CATEGORIES);
 export type Category = z.infer<typeof CategorySchema>;
 

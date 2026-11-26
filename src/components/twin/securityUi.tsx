@@ -13,7 +13,7 @@ export const SEV: Record<Severity, { label: string; Icon: LucideIcon; cls: strin
   info: { label: "Info", Icon: Info, cls: "border border-line bg-raised text-ink-faint", bar: "bg-line" },
 };
 
-export const CATEGORY_LABEL: Record<Category, string> = { dependency: "Dependencies", secret: "Secrets", pipeline: "Pipelines", container: "Containers", code: "Code", runtime: "Live testing" };
+export const CATEGORY_LABEL: Record<Category, string> = { dependency: "Dependencies", secret: "Secrets", pipeline: "Pipelines", container: "Containers", code: "Code", runtime: "Live testing", "detection-gap": "Detection" };
 
 export function SeverityBadge({ severity, compact }: { severity: Severity; compact?: boolean }) {
   const s = SEV[severity];
@@ -107,6 +107,7 @@ export function sourceLabel(source: string | undefined, name?: string): string |
   if (source === "dependabot") return "GitHub Dependabot";
   if (source === "codeql" || source === "code-scanning") return "GitHub code scanning";
   if (source === "secret-scanning") return "GitHub secret scanning";
+  if (source === "blue-team") return "Detection check";
   if (source.startsWith("sarif:")) return `${name || source.slice(6)} (imported report)`;
   if (source.startsWith("passive:")) return `Live check of ${name || source.slice(8)}`;
   return source;

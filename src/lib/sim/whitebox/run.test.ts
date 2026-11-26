@@ -38,7 +38,9 @@ describe("verify by simulation, for one repository", () => {
     const saved = r.stored()!;
     expect(saved.simulated).toMatchObject({ at: NOW, sourceRead: false });
     expect(saved.findings.filter((f) => f.simulation).length).toBeGreaterThan(0);
-    for (const f of saved.findings) { const { simulation: _s, ...rest } = f; const before = r.set.findings.find((o) => o.id === f.id)!; expect(rest).toEqual(before); } // eslint-disable-line @typescript-eslint/no-unused-vars
+    // the blue observer adds genuinely new findings (detection gaps); every PRE-EXISTING finding is untouched otherwise
+    for (const f of saved.findings.filter((f) => f.category !== "detection-gap")) { const { simulation: _s, ...rest } = f; const before = r.set.findings.find((o) => o.id === f.id)!; expect(rest).toEqual(before); } // eslint-disable-line @typescript-eslint/no-unused-vars
+    expect(saved.findings.filter((f) => f.category === "detection-gap").length).toBeGreaterThan(0);
   });
 
   it("does not read a line of source unless asked, and then only for the findings it exercises, with the caller's token", async () => {
@@ -118,7 +120,7 @@ describe("the white-box, gray-box and red-team agents together", () => {
       excerpt: (async () => null) as never, now: () => NOW, ...over,
     };
     const out = await simulateAndStore("acme/shop", "t", { source: false, deps });
-    return { out, stored: () => stored!, set };
+    return { out, stored: () => stored!, set, deps };
   }
 
   it("one action gives verdicts from both: injection and open-route findings from the white-box agent, access-control ones from the gray-box agent", async () => {
@@ -181,5 +183,26 @@ describe("the white-box, gray-box and red-team agents together", () => {
     const x = await both();
     // f2 (the open admin route) is reachable anonymously by both the white-box baseline and the red-team agent; white-box wins
     expect(x.stored().findings.find((f) => f.id === "f2")!.simulation!.by).toBe("whitebox");
+  });
+
+  it("the blue observer adds its own findings (not a verdict on an existing one) for what the health engine would miss", async () => {
+    const x = await both();
+    const gaps = x.stored().findings.filter((f) => f.category === "detection-gap");
+    expect(gaps.length).toBeGreaterThan(0);
+    expect(gaps.every((f) => f.ruleId === "BLUE/not-detected" && f.detail.source === "blue-team")).toBe(true);
+  });
+  it("if it fails, the other three results are still stored, and the failure is said", async () => {
+    const x = await both({ blue: () => { throw new Error("boom"); } });
+    expect(x.out.ok).toBe(true);
+    expect(x.stored().findings.find((f) => f.id === "f1")!.simulation).toMatchObject({ by: "whitebox" });
+    expect(x.stored().findings.some((f) => f.category === "detection-gap")).toBe(false);
+    expect(x.stored().simulated!.notes.join(" ")).toMatch(/detection-coverage check could not run/);
+  });
+  it("running it again replaces last time's detection-gap findings rather than piling them up", async () => {
+    const x = await both();
+    const first = x.stored().findings.filter((f) => f.category === "detection-gap").map((f) => f.id).sort();
+    await simulateAndStore("acme/shop", "t", { source: false, deps: x.deps });
+    const second = x.stored().findings.filter((f) => f.category === "detection-gap").map((f) => f.id).sort();
+    expect(second).toEqual(first);
   });
 });

@@ -9,7 +9,7 @@ const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "
 /** A URL we are willing to put in an href: https only, so an advisory link can never be `javascript:`. */
 const safeUrl = (u: string | undefined) => (u && /^https:\/\/[^\s"'<>]+$/.test(u) ? u : undefined);
 
-const CATEGORY_NAME = { dependency: "Dependencies", secret: "Secrets", pipeline: "CI pipelines", container: "Containers", code: "Source code", runtime: "Live testing" } as const;
+const CATEGORY_NAME = { dependency: "Dependencies", secret: "Secrets", pipeline: "CI pipelines", container: "Containers", code: "Source code", runtime: "Live testing", "detection-gap": "Detection gaps" } as const;
 const SEV_NAME: Record<Severity, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low", info: "Info" };
 const SEV_COLOR: Record<Severity, string> = { critical: "#b4161b", high: "#d1242f", medium: "#9a6700", low: "#57606a", info: "#8c959f" };
 

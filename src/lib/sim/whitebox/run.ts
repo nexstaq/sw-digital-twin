@@ -3,6 +3,7 @@ import type { Persist } from "@/lib/persist/types";
 import { fetchExcerpt } from "@/lib/security/excerpt";
 import type { Finding, FindingSet } from "@/lib/security/types";
 import type { Simulation } from "@/lib/security/types";
+import { assessDetection } from "../blue/detect";
 import { discoverAccess } from "../graybox/agent";
 import { discoverReachability } from "../redteam/agent";
 import { applySimulations, verifyFindings } from "./agent";
@@ -18,9 +19,10 @@ export type SimulateOutcome = { ok: true; set: FindingSet } | { ok: false; statu
 
 export interface SimDeps {
   store?: Pick<Persist, "getFindings" | "putFindings" | "listSnapshots" | "getSnapshot">; excerpt?: typeof fetchExcerpt; now?: () => number;
-  /** test seams for the other two agents */
+  /** test seams for the other checks */
   graybox?: typeof discoverAccess;
   redteam?: typeof discoverReachability;
+  blue?: typeof assessDetection;
 }
 
 export async function simulateAndStore(repo: string, token: string | undefined, o: { source: boolean; signal?: AbortSignal; deps?: SimDeps }): Promise<SimulateOutcome> {
@@ -44,6 +46,11 @@ export async function simulateAndStore(repo: string, token: string | undefined, 
   let red: Awaited<ReturnType<typeof discoverReachability>> | null = null;
   try { red = await (o.deps?.redteam ?? discoverReachability)({ repo, sha: set.sha, graph: snap.graph, set, now }); } catch { /* reported in the notes below */ }
 
+  // The blue observer checks whether the health engine would notice any of this happening at all. It adds NEW findings
+  // (category "detection-gap") rather than a verdict on an existing one, and is a pure check: no agent, no model.
+  let blue: ReturnType<typeof assessDetection> | null = null;
+  try { blue = (o.deps?.blue ?? assessDetection)({ repo, sha: set.sha, graph: snap.graph, set, now }); } catch { /* reported in the notes below */ }
+
   // Where more than one agent speaks about the same finding, the one that can read the code wins, then the one with credentials.
   const simulations: Record<string, Simulation> = { ...(red?.simulations ?? {}), ...(gray?.simulations ?? {}), ...r.simulations };
   const counts: Record<string, number> = {};
@@ -52,10 +59,13 @@ export async function simulateAndStore(repo: string, token: string | undefined, 
     ...(snap.sha !== set.sha ? ["The map and the security scan are from different commits, so some paths may not line up."] : []),
     ...r.notes, ...(gray ? gray.notes.filter((n) => !/findings were not exercised/.test(n)) : ["The access-control tests could not run."]),
     ...(red ? red.notes : ["The crown-jewel reachability check could not run."]),
+    ...(blue ? blue.notes : ["The detection-coverage check could not run."]),
   ];
   const merged = applySimulations(set, { simulations, run: r.run, runId: r.runId, counts, notes }, { sourceRead: o.source, at: now() });
   if (gray) merged.simulated = { ...merged.simulated!, graybox: { runId: gray.runId, head: gray.run.head } };
   if (red) merged.simulated = { ...merged.simulated!, redteam: { runId: red.runId, head: red.run.head } };
+  // a re-run replaces last time's detection-gap findings rather than piling them up, the same way an imported report replaces its own previous one
+  if (blue) merged.findings = [...merged.findings.filter((f) => f.category !== "detection-gap"), ...blue.findings];
   await store.putFindings(repo, merged);
   return { ok: true, set: merged };
 }

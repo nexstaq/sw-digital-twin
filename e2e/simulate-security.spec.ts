@@ -55,6 +55,14 @@ test.describe("verify by simulation", () => {
     await expect(panel(page)).toContainText("Reachable with no credentials");
     await panel(page).getByRole("button", { name: "Close finding" }).click();
 
+    // the blue observer: a genuinely new finding (not a verdict on an existing one) for something the health engine would miss
+    await posture(page).getByRole("button", { name: /^Detection \d/ }).click();
+    await posture(page).getByRole("button", { name: /Not noticed:/ }).first().click();
+    await expect(panel(page)).toContainText("Detection check");
+    await expect(panel(page)).toContainText(/will not notice this/);
+    await expect(panel(page).getByRole("button", { name: "Show the proposed patch" })).toHaveCount(0);
+    await panel(page).getByRole("button", { name: "Close finding" }).click();
+
     await codeOnly(page);
     // the real SQL injection, on the open write route: confirmed with high confidence
     await posture(page).getByRole("button", { name: /SQL built from request data/ }).click();
