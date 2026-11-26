@@ -156,6 +156,14 @@ describe("toSarif", () => {
     expect(out.runs[0].results[0].locations[0].physicalLocation).not.toHaveProperty("region");
     expect(JSON.stringify(toSarif(SET([F("s", "critical", { category: "secret", detail: { masked: "AKIA…" } })])))).not.toContain(AWS);
   });
+  it("carries the ATT&CK technique a simulation actually exercised, per result, never guessed for a finding with no verdict", () => {
+    const sim = { by: "redteam" as const, verdict: "confirmed" as const, confidence: "medium" as const, summary: "x", reaches: [], steps: [], source: { read: false }, runId: "rt_1", head: "h", verifiedAt: 0, test: { entry: "GET /x", role: "anonymous" as const, technique: "T1190", steps: [] } };
+    const out = toSarif(SET([F("w", "high", { simulation: sim }), F("w2", "high")]));
+    const withSim = out.runs[0].results.find((r) => r.locations[0].physicalLocation.artifactLocation.uri === "src/w.ts")!;
+    const without = out.runs[0].results.find((r) => r.locations[0].physicalLocation.artifactLocation.uri === "src/w2.ts")!;
+    expect(withSim.properties.technique).toBe("T1190");
+    expect(without.properties).not.toHaveProperty("technique");
+  });
   it("an empty scan is valid SARIF with no results", () => {
     const e = toSarif(SET([]));
     expect(e.runs[0].results).toEqual([]);

@@ -141,6 +141,14 @@ export const FindingSetSchema = z.object({
     graybox: z.object({ runId: z.string(), head: z.string() }).optional(),
     /** the red-team agent's own run (crown-jewel reachability from the public surface), with its own audit log head */
     redteam: z.object({ runId: z.string(), head: z.string() }).optional(),
+    /** the blue observer's coverage, kept in full (not just the misses, which also become findings) so a replay can show a genuine detection too */
+    blue: z.object({
+      tried: z.number(), detected: z.number(), missed: z.number(),
+      coverage: z.array(z.object({
+        kind: z.string(), nodeId: z.string(), label: z.string(), outcome: z.enum(["detected", "missed", "not-tried"]),
+        timeToDetectMs: z.number().optional(), suggestion: z.string().optional(),
+      })),
+    }).optional(),
   }).optional(),
   /** what could not be checked (OSV unreachable, scan capped, …): never silently "all clear" */
   warnings: z.array(z.string()),

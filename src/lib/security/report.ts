@@ -132,7 +132,8 @@ export function toSarif(set: FindingSet) {
         message: { text: `${f.title}. ${f.reason}` },
         locations: [{ physicalLocation: { artifactLocation: { uri: f.path, uriBaseId: "%SRCROOT%" }, ...(f.line ? { region: { startLine: f.line, ...(f.endLine && f.endLine >= f.line ? { endLine: f.endLine } : {}) } } : {}) } }],
         partialFingerprints: { "missionControl/v1": f.id },
-        properties: { "security-severity": SECURITY_SEVERITY[f.severity], category: f.category, confidence: f.confidence },
+        // the ATT&CK technique a simulation actually exercised to confirm this, when one did (X4-X6): evidence, not a label applied by hand
+        properties: { "security-severity": SECURITY_SEVERITY[f.severity], category: f.category, confidence: f.confidence, ...(f.simulation?.test?.technique ? { technique: f.simulation.test.technique } : {}) },
       })),
       versionControlProvenance: [{ repositoryUri: `https://github.com/${set.repo}`, revisionId: set.sha }],
     }],

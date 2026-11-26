@@ -64,6 +64,19 @@ export async function simulateAndStore(repo: string, token: string | undefined, 
   const merged = applySimulations(set, { simulations, run: r.run, runId: r.runId, counts, notes }, { sourceRead: o.source, at: now() });
   if (gray) merged.simulated = { ...merged.simulated!, graybox: { runId: gray.runId, head: gray.run.head } };
   if (red) merged.simulated = { ...merged.simulated!, redteam: { runId: red.runId, head: red.run.head } };
+  if (blue) {
+    merged.simulated = {
+      ...merged.simulated!,
+      blue: {
+        ...blue.summary,
+        coverage: blue.coverage.map((c) => ({
+          kind: c.kind, nodeId: c.nodeId, label: c.label, outcome: c.outcome,
+          ...(c.timeToDetectMs !== undefined ? { timeToDetectMs: c.timeToDetectMs } : {}),
+          ...(c.suggestion ? { suggestion: c.suggestion } : {}),
+        })),
+      },
+    };
+  }
   // a re-run replaces last time's detection-gap findings rather than piling them up, the same way an imported report replaces its own previous one
   if (blue) merged.findings = [...merged.findings.filter((f) => f.category !== "detection-gap"), ...blue.findings];
   await store.putFindings(repo, merged);

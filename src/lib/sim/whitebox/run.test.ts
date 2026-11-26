@@ -191,6 +191,14 @@ describe("the white-box, gray-box and red-team agents together", () => {
     expect(gaps.length).toBeGreaterThan(0);
     expect(gaps.every((f) => f.ruleId === "BLUE/not-detected" && f.detail.source === "blue-team")).toBe(true);
   });
+  it("keeps the full coverage (detected rows too, not only the misses that also became findings) for a replay to show", async () => {
+    const x = await both();
+    const blue = x.stored().simulated!.blue!;
+    expect(blue).toMatchObject({ tried: expect.any(Number), detected: expect.any(Number), missed: expect.any(Number) });
+    expect(blue.coverage.length).toBe(blue.tried);
+    expect(blue.coverage.filter((c) => c.outcome === "missed").length).toBe(blue.missed);
+    for (const c of blue.coverage) expect(c).not.toHaveProperty("proof"); // nothing from the range's internals, just what a replay needs
+  });
   it("if it fails, the other three results are still stored, and the failure is said", async () => {
     const x = await both({ blue: () => { throw new Error("boom"); } });
     expect(x.out.ok).toBe(true);

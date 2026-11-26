@@ -167,6 +167,8 @@ export async function discoverReachability(input: RedteamInput): Promise<Redteam
     simulations[findingId] = {
       by: "redteam", verdict: "confirmed", confidence: crown.length ? "medium" : "low", reaches,
       steps: [...new Set(ps.flatMap((p) => p.auditSteps))].sort((a, b) => a - b), source: { read: false }, runId: roe.runId, head: run.head, verifiedAt,
+      // no per-step replay (the audit log already carries that): just the technique, so a report or export can cite it
+      test: { entry: ps[0].entry, role: "anonymous", technique: ps[0].technique, steps: [] },
       summary: crown.length
         ? `Reachable with no credentials at all, from the public surface, via ${ps.length === 1 ? "one path" : `${ps.length} distinct paths`}; at least one of them reaches a protected data store. Found by probing the public surface only, with no knowledge of where the weaknesses were seeded.`
         : "Reachable with no credentials, but no path from it was found to reach a protected data store in this map.",
